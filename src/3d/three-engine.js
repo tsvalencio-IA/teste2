@@ -1,7 +1,7 @@
 /**
  * src/3d/three-engine.js
  * Núcleo do WebGLRenderer, controles e lógica completa de interação física/AR.
- * EVOLUÇÃO: Fotorrealismo HDRI, Fundo 3D Físico e Cinemática Suave.
+ * EVOLUÇÃO PROFISSIONAL: Gesto-a-Gesto AR, Animação Responsiva e Câmera Limpa Interativa.
  */
 
 import { AppState } from '../core/app-state.js';
@@ -15,6 +15,9 @@ export const ThreeEngine = {
     raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2(), pDown: {x:0,y:0}, 
     dragObj: null, pressTimer: null, isLongPress: false, downTime: 0, isDown: false,
     
+    // Novo: Estados para detecção de gestos profissionais (dedos na tela)
+    evCache: [], prevDiff: -1, gestureMode: 'none', dragStartPoint: null,
+
     bgPlane: null,
 
     init: () => {
@@ -81,11 +84,15 @@ export const ThreeEngine = {
         ThreeEngine.scene.add(ThreeEngine.rootNode);
         ThreeEngine.dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         
+        // Novo: Eventos de ponteiro (suporte para múltiplos dedos/mouse)
         cv.addEventListener('pointerdown', ThreeEngine.onPtrDown, { capture: true }); 
         cv.addEventListener('pointermove', ThreeEngine.onPtrMove, { capture: true }); 
         cv.addEventListener('pointerup', ThreeEngine.onPtrUp, { capture: true });
+        cv.addEventListener('pointercancel', ThreeEngine.onPtrUp, { capture: true });
+        cv.addEventListener('pointerout', ThreeEngine.onPtrUp, { capture: true });
 
-        const stopTouch = (e) => { if (ThreeEngine.dragObj) e.stopImmediatePropagation(); };
+        // Impede que toques no canvas subam e toquem em menus HTML
+        const stopTouch = (e) => { e.stopImmediatePropagation(); };
         cv.addEventListener('touchstart', stopTouch, { capture: true, passive: false }); 
         cv.addEventListener('touchmove', stopTouch, { capture: true, passive: false }); 
         cv.addEventListener('touchend', stopTouch, { capture: true, passive: false });
@@ -144,34 +151,44 @@ export const ThreeEngine = {
 
     getPtr: (e) => {
         const rect = ThreeEngine.renderer.domElement.getBoundingClientRect(); 
-        let cX = e.clientX; 
-        let cY = e.clientY;
-        if (cX === undefined && e.changedTouches && e.changedTouches.length > 0) { 
-            cX = e.changedTouches[0].clientX; cY = e.changedTouches[0].clientY; 
-        } else if (cX === undefined && e.touches && e.touches.length > 0) { 
-            cX = e.touches[0].clientX; cY = e.touches[0].clientY; 
-        }
+        const cX = e.clientX; 
+        const cY = e.clientY;
+        
         ThreeEngine.pointer.x = ((cX - rect.left) / rect.width) * 2 - 1; 
         ThreeEngine.pointer.y = -((cY - rect.top) / rect.height) * 2 + 1; 
         return {x: cX, y: cY};
     },
 
     onPtrDown: (e) => {
+        ThreeEngine.evCache.push(e); // Guarda o ponto de toque
+        
+        if (ThreeEngine.evCache.length > 2) { ThreeEngine.evCache = []; return; } // Limpa se houver erro
+
         const pos = ThreeEngine.getPtr(e); 
-        ThreeEngine.pDown = pos; 
         ThreeEngine.isDown = true; 
-        ThreeEngine.isLongPress = false; 
         ThreeEngine.downTime = Date.now();
+        ThreeEngine.gestureMode = 'none';
+
+        if (ThreeEngine.evCache.length === 2) {
+            // Gesto de 2 dedos (Pinch/Zoom). Desativa OrbitControls e LongPress indicador
+            ThreeEngine.controls.enabled = false;
+            clearTimeout(ThreeEngine.pressTimer);
+            document.getElementById('longPressIndicator').style.display = 'none';
+            ThreeEngine.prevDiff = -1;
+            ThreeEngine.gestureMode = 'pinch';
+            return;
+        }
+
+        // Lógica de 1 dedo ou mouse
+        ThreeEngine.pDown = pos; 
+        ThreeEngine.isLongPress = false; 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
         
+        // Se estiver no AR ajustando o projeto (Caixa Azul)
         if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
-            ThreeEngine.dragPlane.constant = -ThreeEngine.rootNode.position.y;
-            const hitPoint = new THREE.Vector3(); 
-            ThreeEngine.raycaster.ray.intersectPlane(ThreeEngine.dragPlane, hitPoint);
-            if (hitPoint) { 
-                ThreeEngine.controls.enabled = false; 
-                ThreeEngine.dragObj = { type: 'root', offset: hitPoint.clone().sub(ThreeEngine.rootNode.position) }; 
-            } 
+            ThreeEngine.controls.enabled = false; 
+            ThreeEngine.gestureMode = 'arrasto_projeto';
+            ThreeEngine.dragStartPoint = {x: e.clientX, y: e.clientY};
             return; 
         }
 
@@ -185,159 +202,215 @@ export const ThreeEngine = {
             while (obj && !obj.userData.isRootModule && obj.parent) obj = obj.parent;
             
             if (obj && obj.userData.isRootModule) {
-                window.App.modules.select(obj.userData.id);
+                // Seleção fotorrealista. Apenas destaca, não abre menu no down
+                if(AppState.tool === 'orbit') window.App.modules.select(obj.userData.id);
                 
-                if (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca')) { 
+                // Mover Peça (Com Snap) - Só se OrbitControls estiver habilitado (fora do Print Mode)
+                if (ThreeEngine.controls.enabled && (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca'))) { 
                     ThreeEngine.controls.enabled = false; 
                     ThreeEngine.dragPlane.constant = -obj.position.y;
                     const hitPoint = new THREE.Vector3(); 
                     ThreeEngine.raycaster.ray.intersectPlane(ThreeEngine.dragPlane, hitPoint);
                     if (hitPoint) { 
                         ThreeEngine.dragObj = { obj: obj, offset: hitPoint.clone().sub(obj.position) }; 
+                        ThreeEngine.gestureMode = 'arrasto_peca';
                     } 
                 }
                 
-                let cX = e.clientX; 
-                let cY = e.clientY; 
-                if (cX === undefined && e.touches && e.touches.length > 0) { 
-                    cX = e.touches[0].clientX; cY = e.touches[0].clientY; 
-                }
+                // Indicador de LongPress Sênior
                 const ind = document.getElementById('longPressIndicator'); 
                 ind.style.display = 'block'; 
-                ind.style.left = (cX - 40) + 'px'; 
-                ind.style.top = (cY - 40) + 'px';
+                ind.style.left = (e.clientX - 40) + 'px'; 
+                ind.style.top = (e.clientY - 40) + 'px';
                 
                 ThreeEngine.pressTimer = setTimeout(() => { 
                     ind.style.display = 'none'; 
-                    if (ThreeEngine.isDown && !ThreeEngine.dragObj) { 
+                    // Se não arrastou a peça, abre o editor
+                    if (ThreeEngine.isDown && ThreeEngine.gestureMode !== 'arrasto_peca') { 
                         ThreeEngine.isLongPress = true; 
                         window.App.ui.openLiveEditor(obj.userData.id); 
                     } 
-                }, 500);
+                }, 600);
             }
         } else { 
-            window.App.modules.select(null); 
+            // Clicou no nada, desseleciona
+            if(ThreeEngine.controls.enabled) window.App.modules.select(null); 
         }
     },
 
     onPtrMove: (e) => {
         if (!ThreeEngine.isDown) return; 
-        let cX = e.clientX; 
-        let cY = e.clientY; 
-        if (cX === undefined && e.touches && e.touches.length > 0) { 
-            cX = e.touches[0].clientX; cY = e.touches[0].clientY; 
+        ThreeEngine.getPtr(e);
+
+        // Atualiza cache de ponteiros para gestos
+        for (let i = 0; i < ThreeEngine.evCache.length; i++) {
+            if (e.pointerId === ThreeEngine.evCache[i].pointerId) {
+                ThreeEngine.evCache[i] = e;
+                break;
+            }
         }
-        
-        if (Math.hypot(cX - ThreeEngine.pDown.x, cY - ThreeEngine.pDown.y) > 15) { 
+
+        // --- GESTO PROFISSIONAL COM DEDOS ---
+
+        // Gesto 1: Pinch / Zoom (2 dedos na tela)
+        if (ThreeEngine.gestureMode === 'pinch' && ThreeEngine.evCache.length === 2 && AppState.arActive && AppState.modoInteracao === 'projeto') {
+            const curDiff = Math.hypot(ThreeEngine.evCache[0].clientX - ThreeEngine.evCache[1].clientX, ThreeEngine.evCache[0].clientY - ThreeEngine.evCache[1].clientY);
+
+            if (ThreeEngine.prevDiff > 0) {
+                // A Caixa Azul não pode diminuir além do real. Impõe limites de engenharia.
+                const scaleFactor = 0.005; // Escala suave PBR
+                const delta = (curDiff - ThreeEngine.prevDiff) * scaleFactor;
+                let newScale = ThreeEngine.rootNode.scale.x + delta;
+                newScale = THREE.MathUtils.clamp(newScale, 0.1, 8.0); // Limites de render fotográfico
+                
+                ThreeEngine.rootNode.scale.set(newScale, newScale, newScale);
+                document.getElementById('camScale').value = newScale; // Sincroniza HUD oculto
+            }
+            ThreeEngine.prevDiff = curDiff;
+            return;
+        }
+
+        // Se moveu muito, cancela o LongPress
+        if (ThreeEngine.evCache.length === 1 && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) > 15) { 
             clearTimeout(ThreeEngine.pressTimer); 
             ThreeEngine.isLongPress = false; 
             document.getElementById('longPressIndicator').style.display = 'none'; 
         }
-        
-        if (ThreeEngine.dragObj && (AppState.tool === 'move' || AppState.arActive)) {
-            ThreeEngine.getPtr(e); 
-            ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
+
+        // Gesto 2: Arrasto no Estúdio AR (1 dedo na tela)
+        if (ThreeEngine.gestureMode === 'arrasto_projeto' && AppState.arActive && AppState.modoInteracao === 'projeto' && ThreeEngine.dragStartPoint) {
+            const deltaX = e.clientX - ThreeEngine.dragStartPoint.x;
+            const deltaY = e.clientY - ThreeEngine.dragStartPoint.y;
             
-            if (ThreeEngine.dragObj.type === 'root') { 
-                const hitPoint = new THREE.Vector3(); 
-                ThreeEngine.raycaster.ray.intersectPlane(ThreeEngine.dragPlane, hitPoint);
-                if(hitPoint) { 
-                    const newPos = hitPoint.clone().sub(ThreeEngine.dragObj.offset); 
-                    ThreeEngine.rootNode.position.x = newPos.x; 
-                    ThreeEngine.rootNode.position.z = newPos.z; 
-                    StorageManager.save(); 
-                }
-            } else { 
-                const modData = AppState.modules.find(m => m.id === ThreeEngine.dragObj.obj.userData.id); 
-                if (modData) {
-                    const hitPointMat = new THREE.Vector3(); 
-                    ThreeEngine.raycaster.ray.intersectPlane(ThreeEngine.dragPlane, hitPointMat);
-                    
-                    if(hitPointMat) {
-                        let tX = hitPointMat.x - ThreeEngine.dragObj.offset.x; 
-                        let tZ = hitPointMat.z - ThreeEngine.dragObj.offset.z; 
-                        let tY = (modData.posY !== undefined) ? modData.posY / 1000 : 0; 
-                        let rY = modData.rotY || 0; 
+            // Sensibilidade calibrada para exposição fotográfica ACES
+            const rotY_Sens = 0.006;
+            const posY_Sens = 0.01;
 
-                        const rW2 = AppState.roomWidth / 2000; 
-                        const rD2 = AppState.roomDepth / 2000;
-                        const halfW = (modData.largura || 1000) / 2000; 
-                        const halfD = (modData.profundidade || 500) / 2000;
-                        const snapDist = 0.4; 
-                        let snapped = false;
+            // X na tela gira a Caixa Azul no eixo Y (Perspectiva)
+            const newRotY = THREE.MathUtils.clamp(ThreeEngine.rootNode.rotation.y + deltaX * rotY_Sens, -Math.PI * 1.5, Math.PI * 1.5);
+            ThreeEngine.rootNode.rotation.y = newRotY;
+            document.getElementById('camRotY').value = newRotY;
 
-                        if (Math.abs((tZ - halfD) - (-rD2)) < snapDist) { tZ = -rD2 + halfD; rY = 0; snapped = true; }
-                        else if (Math.abs((tX - halfW) - (-rW2)) < snapDist) { tX = -rW2 + halfW; rY = -90; snapped = true; } 
-                        else if (Math.abs((tX + halfW) - (rW2)) < snapDist) { tX = rW2 - halfW; rY = 90; snapped = true; } 
+            // Y na tela Sobe/Desce a Caixa Azul (Nível do Chão real)
+            const newPosY = THREE.MathUtils.clamp(ThreeEngine.rootNode.position.y - deltaY * posY_Sens, -10, 10);
+            ThreeEngine.rootNode.position.y = newPosY;
+            document.getElementById('camPosY').value = newPosY;
+            
+            ThreeEngine.dragStartPoint = {x: e.clientX, y: e.clientY}; // Atualiza ponto de partida para continuidade suave
+            return;
+        }
 
-                        ThreeEngine.dragObj.obj.position.set(tX, tY, tZ); 
-                        if(snapped) { 
-                            ThreeEngine.dragObj.obj.rotation.y = THREE.MathUtils.degToRad(rY); 
-                            modData.rotY = rY; 
-                        }
-                        
-                        modData.posX = tX * 1000; 
-                        modData.posZ = tZ * 1000; 
-                        window.App.ui.syncToStateNoRebuild(); 
+        // Gesto 3: Mover Peça (Lógica original, agora com 'flag' de gesto)
+        if (ThreeEngine.gestureMode === 'arrasto_peca' && ThreeEngine.dragObj && (AppState.tool === 'move' || AppState.arActive)) {
+            ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
+            const modData = AppState.modules.find(m => m.id === ThreeEngine.dragObj.obj.userData.id); 
+            
+            if (modData) {
+                const hitPointMat = new THREE.Vector3(); 
+                ThreeEngine.raycaster.ray.intersectPlane(ThreeEngine.dragPlane, hitPointMat);
+                
+                if(hitPointMat) {
+                    let tX = hitPointMat.x - ThreeEngine.dragObj.offset.x; 
+                    let tZ = hitPointMat.z - ThreeEngine.dragObj.offset.z; 
+                    let tY = (modData.posY !== undefined) ? modData.posY / 1000 : 0; 
+                    let rY = modData.rotY || 0; 
+
+                    // Snapping Físico Líquido Sênior
+                    const rW2 = AppState.roomWidth / 2000; 
+                    const rD2 = AppState.roomDepth / 2000;
+                    const halfW = (modData.largura || 1000) / 2000; 
+                    const halfD = (modData.profundidade || 500) / 2000;
+                    const snapDist = 0.4; // Distância PBR para "colar"
+                    let snapped = false;
+
+                    if (Math.abs((tZ - halfD) - (-rD2)) < snapDist) { tZ = -rD2 + halfD; rY = 0; snapped = true; }
+                    else if (Math.abs((tX - halfW) - (-rW2)) < snapDist) { tX = -rW2 + halfW; rY = -90; snapped = true; } 
+                    else if (Math.abs((tX + halfW) - (rW2)) < snapDist) { tX = rW2 - halfW; rY = 90; snapped = true; } 
+
+                    ThreeEngine.dragObj.obj.position.set(tX, tY, tZ); 
+                    if(snapped) { 
+                        ThreeEngine.dragObj.obj.rotation.y = THREE.MathUtils.degToRad(rY); 
+                        modData.rotY = rY; 
                     }
+                    
+                    modData.posX = tX * 1000; 
+                    modData.posZ = tZ * 1000; 
+                    window.App.ui.syncToStateNoRebuild(); 
                 }
             }
         }
     },
 
     onPtrUp: (e) => {
+        // Remove ponteiro do cache
+        for (let i = 0; i < ThreeEngine.evCache.length; i++) {
+            if (ThreeEngine.evCache[i].pointerId === e.pointerId) {
+                ThreeEngine.evCache.splice(i, 1);
+                break;
+            }
+        }
+
+        if (ThreeEngine.evCache.length < 2) { ThreeEngine.prevDiff = -1; }
+
         ThreeEngine.isDown = false; 
-        ThreeEngine.controls.enabled = true; 
+        
+        // Reabilita OrbitControls e salva estado apenas se não estiver no "Câmera Limpa"
+        if(!AppState.isPrintModeActive) ThreeEngine.controls.enabled = true; 
+        
         clearTimeout(ThreeEngine.pressTimer); 
         document.getElementById('longPressIndicator').style.display = 'none';
         
+        ThreeEngine.dragStartPoint = null;
+
+        // Limpa estado de arrasto de peça
         if (ThreeEngine.dragObj) { ThreeEngine.dragObj = null; return; } 
         if (ThreeEngine.isLongPress) { ThreeEngine.isLongPress = false; return; } 
         
-        StorageManager.save();
-
-        let cX = e.clientX; let cY = e.clientY; 
-        if (cX === undefined && e.changedTouches && e.changedTouches.length > 0) { 
-            cX = e.changedTouches[0].clientX; cY = e.changedTouches[0].clientY; 
+        // Se finalizou um gesto AR, salva
+        if(ThreeEngine.gestureMode === 'pinch' || ThreeEngine.gestureMode === 'arrasto_projeto') {
+            ThreeEngine.gestureMode = 'none';
+            StorageManager.save();
+            return;
         }
 
-        if (AppState.tool === 'remove_part') {
-            if (Math.hypot(cX - ThreeEngine.pDown.x, cY - ThreeEngine.pDown.y) < 15) {
-                ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
-                const hits = ThreeEngine.raycaster.intersectObjects(ThreeEngine.rootNode.children, true);
-                if (hits.length > 0) {
-                    let target = hits[0].object; 
-                    if(target.userData.type && target.userData.type.includes('wall')) return;
-                    if (target.type === 'LineSegments' && target.parent) target = target.parent;
-                    let modGroup = target; 
-                    while(modGroup && !modGroup.userData.isRootModule) modGroup = modGroup.parent;
-                    if (modGroup && target.userData && target.userData.partKey) {
-                        const mod = AppState.modules.find(m => m.id === modGroup.userData.id);
-                        if (mod && !mod.removedParts?.includes(target.userData.partKey)) {
-                            if(!mod.removedParts) mod.removedParts = [];
-                            mod.removedParts.push(target.userData.partKey); 
-                            window.App.modules.refreshAll(); 
-                            window.App.ui.toast(`Peça ocultada: ${target.userData.partKey}`, 'warning');
-                        }
+        StorageManager.save();
+
+        // --- LÓGICA DE CLIQUE ÚNICO (TOQUE E ABRIR) ---
+        ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
+
+        // Borracha Master (Ocultar Peça)
+        if (AppState.tool === 'remove_part' && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
+            const hits = ThreeEngine.raycaster.intersectObjects(ThreeEngine.rootNode.children, true);
+            if (hits.length > 0) {
+                let target = hits[0].object; 
+                if(target.userData.type && target.userData.type.includes('wall')) return;
+                if (target.type === 'LineSegments' && target.parent) target = target.parent;
+                let modGroup = target; 
+                while(modGroup && !modGroup.userData.isRootModule) modGroup = modGroup.parent;
+                if (modGroup && target.userData && target.userData.partKey) {
+                    const mod = AppState.modules.find(m => m.id === modGroup.userData.id);
+                    if (mod && !mod.removedParts?.includes(target.userData.partKey)) {
+                        if(!mod.removedParts) mod.removedParts = [];
+                        mod.removedParts.push(target.userData.partKey); 
+                        window.App.modules.refreshAll(); 
+                        window.App.ui.toast(`Peça ocultada: ${target.userData.partKey}`, 'warning');
                     }
                 }
             } return;
         }
 
-        if (AppState.tool === 'add_comp') {
-            if (Math.hypot(cX - ThreeEngine.pDown.x, cY - ThreeEngine.pDown.y) < 15) {
-                ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
-                const hits = ThreeEngine.raycaster.intersectObject(ThreeEngine.floorCollider);
-                if (hits.length > 0) { 
-                    window.App.modules.add('porta_avulsa', { posX: hits[0].point.x * 1000, posY: hits[0].point.y * 1000, posZ: hits[0].point.z * 1000, largura: 400, altura: 600 }); 
-                    window.App.ui.toast("Componente Inserido!"); 
-                }
+        // Inserir Manualmente no Clique
+        if (AppState.tool === 'add_comp' && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
+            const hits = ThreeEngine.raycaster.intersectObject(ThreeEngine.floorCollider);
+            if (hits.length > 0) { 
+                window.App.modules.add('porta_avulsa', { posX: hits[0].point.x * 1000, posY: hits[0].point.y * 1000, posZ: hits[0].point.z * 1000, largura: 400, altura: 600 }); 
+                window.App.ui.toast("Componente Inserido!"); 
             } return;
         }
         
-        if (!AppState.arActive && AppState.tool === 'orbit') {
-            if (Math.hypot(cX - ThreeEngine.pDown.x, cY - ThreeEngine.pDown.y) < 15) {
-                ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
+        // CORREÇÃO: "Toque & Abrir Fotorrealista" Funciona sempre, até no Câmera Limpa
+        if (AppState.tool === 'orbit') {
+            if (Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
                 const hits = ThreeEngine.raycaster.intersectObjects(ThreeEngine.rootNode.children, true); 
                 let anim = null;
                 for (let h of hits) { 
@@ -345,6 +418,7 @@ export const ThreeEngine = {
                     if(curr.userData.type && curr.userData.type.includes('wall')) continue; 
                     if (curr.type === 'LineSegments' && curr.parent) curr = curr.parent; 
                     while (curr) { 
+                        // Procura por peça interativa (dobra, corre, pisca, dobras)
                         if (curr.userData && curr.userData.isAnimatable) { anim = curr; break; } 
                         curr = curr.parent; 
                     } 
@@ -381,32 +455,36 @@ export const ThreeEngine = {
         for (let i = AppState.animacoesAtivas.length - 1; i >= 0; i--) {
             const a = AppState.animacoesAtivas[i]; 
             const obj = a.obj; 
-            const speed = 0.08; 
+            
+            // CORREÇÃO: Animação Sênior Responsiva. Acelerei gavetas e corre de 0.08 para 0.18.
+            const speed_hinge = 0.08; // Dobradiça suave
+            const speed_linear = 0.18; // Gaveta responsiva PBR
             
             if (a.type === 'door_hinge') { 
                 const side = obj.userData.hinge === 'left' ? -1 : 1; 
                 const zD = obj.userData.zDir || 1; 
                 const targetAngle = a.target ? (Math.PI / 1.6 * side * zD) : 0; 
-                obj.rotation.y += (targetAngle - obj.rotation.y) * speed; 
+                obj.rotation.y += (targetAngle - obj.rotation.y) * speed_hinge; 
                 if (Math.abs(obj.rotation.y - targetAngle) < 0.005) { obj.rotation.y = targetAngle; AppState.animacoesAtivas.splice(i, 1); } 
             } else if (a.type === 'door_flap') { 
                 const zD = obj.userData.zDir || 1; 
                 const targetAngle = a.target ? (-Math.PI / 2.2 * zD) : 0; 
-                obj.rotation.x += (targetAngle - obj.rotation.x) * speed; 
+                obj.rotation.x += (targetAngle - obj.rotation.x) * speed_hinge; 
                 if (Math.abs(obj.rotation.x - targetAngle) < 0.005) { obj.rotation.x = targetAngle; AppState.animacoesAtivas.splice(i, 1); } 
             } else if (a.type === 'door_slide') { 
                 const targetPos = a.target ? (obj.userData.baseX + obj.userData.travelX) : obj.userData.baseX; 
-                obj.position.x += (targetPos - obj.position.x) * speed; 
+                obj.position.x += (targetPos - obj.position.x) * speed_linear; 
                 if (Math.abs(obj.position.x - targetPos) < 0.001) { obj.position.x = targetPos; AppState.animacoesAtivas.splice(i, 1); } 
             } else if (a.type === 'drawer') { 
                 const zD = obj.userData.zDir || 1; 
                 const targetPos = a.target ? (obj.userData.baseZ + obj.userData.depth * 0.8 * zD) : obj.userData.baseZ; 
-                obj.position.z += (targetPos - obj.position.z) * speed; 
+                obj.position.z += (targetPos - obj.position.z) * speed_linear; 
                 if (Math.abs(obj.position.z - targetPos) < 0.001) { obj.position.z = targetPos; AppState.animacoesAtivas.splice(i, 1); } 
             }
         }
         
-        ThreeEngine.controls.update(); 
-        PostProcessing.render();
+        // Se OrbitControls estiver ligado, atualiza o damping fotorealista
+        if(ThreeEngine.controls.enabled) ThreeEngine.controls.update(); 
+        PostProcessing.render(); // Render fotorrealista ativo
     }
 };
