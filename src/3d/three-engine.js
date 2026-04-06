@@ -1,10 +1,9 @@
 /**
  * src/3d/three-engine.js
  * Núcleo do WebGLRenderer, controles e lógica completa de interação física/AR.
- * EVOLUÇÃO ABSOLUTA: Fotorrealismo baseado em HDRI da Foto do Usuário, Rotação 360º e UX Mobile.
+ * EVOLUÇÃO ABSOLUTA: Fundo 360º (Skybox) Fotorrealista, Interação Touch Corrigida e Erradicação de Dispose.
  */
 
-import * as THREE from 'three';
 import { AppState } from '../core/app-state.js';
 import { StorageManager } from '../core/storage-manager.js';
 import { PostProcessing } from './post-processing.js';
@@ -23,9 +22,11 @@ export const ThreeEngine = {
         const c = document.getElementById('canvas-container'); 
         const cv = document.getElementById('cad-canvas');
         
+        // Se a DIV do canvas não for achada, aborta e avisa (Trava de segurança)
+        if (!c || !cv) return;
+
         ThreeEngine.scene = new THREE.Scene();
         
-        // Iluminação de Suporte (A luz principal agora virá da Foto do Usuário)
         ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.4)); 
         const dl = new THREE.DirectionalLight(0xffffff, 0.8); 
         dl.position.set(5, 10, 5); 
@@ -45,17 +46,18 @@ export const ThreeEngine = {
             preserveDrawingBuffer: true, 
             powerPreference: "high-performance" 
         }); 
-        ThreeEngine.renderer.setClearColor(0x222222, 1); 
+        ThreeEngine.renderer.setClearColor(0x1a1a1a, 1); 
         ThreeEngine.renderer.setSize(c.clientWidth, c.clientHeight); 
         ThreeEngine.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         ThreeEngine.renderer.shadowMap.enabled = true; 
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
         
-        // Fotorrealismo: ACESFilmic processa luzes intensas sem estourar as cores (Padrão de Cinema)
+        // PBR Fotorrealista puro (Sem plástico)
         ThreeEngine.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
         ThreeEngine.renderer.toneMappingExposure = 1.0; 
         
+        // Inicializa o gerador de reflexos de ambiente da placa de vídeo
         ThreeEngine.pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
         ThreeEngine.pmremGenerator.compileEquirectangularShader();
 
@@ -75,22 +77,23 @@ export const ThreeEngine = {
         cv.addEventListener('pointercancel', ThreeEngine.onPtrUp, { capture: true });
         cv.addEventListener('pointerout', ThreeEngine.onPtrUp, { capture: true });
 
-        const stopTouch = (e) => { e.stopImmediatePropagation(); };
+        const stopTouch = (e) => { if (ThreeEngine.dragObj) e.stopImmediatePropagation(); };
         cv.addEventListener('touchstart', stopTouch, { capture: true, passive: false }); 
         cv.addEventListener('touchmove', stopTouch, { capture: true, passive: false }); 
         cv.addEventListener('touchend', stopTouch, { capture: true, passive: false });
 
         window.addEventListener('resize', () => { 
-            ThreeEngine.camera.aspect = c.clientWidth / c.clientHeight; 
-            ThreeEngine.camera.updateProjectionMatrix(); 
-            ThreeEngine.renderer.setSize(c.clientWidth, c.clientHeight); 
-            PostProcessing.resize(c.clientWidth, c.clientHeight);
+            if(c.clientWidth > 0 && c.clientHeight > 0) {
+                ThreeEngine.camera.aspect = c.clientWidth / c.clientHeight; 
+                ThreeEngine.camera.updateProjectionMatrix(); 
+                ThreeEngine.renderer.setSize(c.clientWidth, c.clientHeight); 
+                PostProcessing.resize(c.clientWidth, c.clientHeight);
+            }
         });
         
         ThreeEngine.animate();
     },
 
-    // A MÁGICA DO FOTORREALISMO E 360º ACONTECE AQUI
     setBackgroundImage: (base64OrUrl) => {
         if (!base64OrUrl) {
             ThreeEngine.scene.background = null;
@@ -98,20 +101,23 @@ export const ThreeEngine = {
             return;
         }
         
+        // A MÁGICA 360 GRAUS DE VERDADE
         new THREE.TextureLoader().load(base64OrUrl, (tex) => {
             tex.encoding = THREE.sRGBEncoding;
             
-            // Transforma a foto plana num ambiente 360º ao redor da cena
+            // Força a imagem a envolver toda a cena 3D (Skybox 360)
             tex.mapping = THREE.EquirectangularReflectionMapping;
             
-            // Aplica a foto como fundo real do mundo 3D (Gira junto com a câmera)
+            // Fundo interativo que gira com a câmera e os dedos
             ThreeEngine.scene.background = tex;
             
-            // Usa a foto do usuário para iluminar e gerar reflexos nos móveis
-            const envMap = ThreeEngine.pmremGenerator.fromEquirectangular(tex).texture;
-            ThreeEngine.scene.environment = envMap;
+            // Usa os pixels da foto para criar reflexos reais nos vidros e vernizes
+            if (ThreeEngine.pmremGenerator) {
+                const envMap = ThreeEngine.pmremGenerator.fromEquirectangular(tex).texture;
+                ThreeEngine.scene.environment = envMap;
+            }
             
-            tex.dispose(); // Otimiza memória
+            // NUNCA colocar tex.dispose() aqui, caso contrário a tela fica preta no WebGL
         });
     },
 
@@ -125,7 +131,6 @@ export const ThreeEngine = {
     },
 
     onPtrDown: (e) => {
-        // UX Inteligente: Tocou na tela 3D, fecha todos os menus para não atrapalhar a visão
         if (window.App && window.App.ui) window.App.ui.fecharHUDs();
 
         ThreeEngine.evCache.push(e);
@@ -139,7 +144,8 @@ export const ThreeEngine = {
         if (ThreeEngine.evCache.length === 2) {
             ThreeEngine.controls.enabled = false;
             clearTimeout(ThreeEngine.pressTimer);
-            document.getElementById('longPressIndicator').style.display = 'none';
+            const elInd = document.getElementById('longPressIndicator');
+            if (elInd) elInd.style.display = 'none';
             ThreeEngine.prevDiff = -1;
             ThreeEngine.gestureMode = 'pinch';
             return;
@@ -149,7 +155,6 @@ export const ThreeEngine = {
         ThreeEngine.isLongPress = false; 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
         
-        // MODO AR: TRAVAR CAIXA AZUL E AJUSTAR ELA
         if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
             ThreeEngine.controls.enabled = false; 
             ThreeEngine.gestureMode = 'arrasto_projeto';
@@ -167,9 +172,8 @@ export const ThreeEngine = {
             while (obj && !obj.userData.isRootModule && obj.parent) obj = obj.parent;
             
             if (obj && obj.userData.isRootModule) {
-                if(AppState.tool === 'orbit') window.App.modules.select(obj.userData.id);
+                if(AppState.tool === 'orbit' && window.App) window.App.modules.select(obj.userData.id);
                 
-                // MODO AR: TRAVAR MÓVEIS E MOVER APENAS A PEÇA SELECIONADA
                 if (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca')) { 
                     ThreeEngine.controls.enabled = false; 
                     ThreeEngine.dragPlane.constant = -obj.position.y;
@@ -182,20 +186,22 @@ export const ThreeEngine = {
                 }
                 
                 const ind = document.getElementById('longPressIndicator'); 
-                ind.style.display = 'block'; 
-                ind.style.left = (e.clientX - 40) + 'px'; 
-                ind.style.top = (e.clientY - 40) + 'px';
+                if (ind) {
+                    ind.style.display = 'block'; 
+                    ind.style.left = (e.clientX - 40) + 'px'; 
+                    ind.style.top = (e.clientY - 40) + 'px';
+                }
                 
                 ThreeEngine.pressTimer = setTimeout(() => { 
-                    ind.style.display = 'none'; 
+                    if(ind) ind.style.display = 'none'; 
                     if (ThreeEngine.isDown && ThreeEngine.gestureMode !== 'arrasto_peca') { 
                         ThreeEngine.isLongPress = true; 
-                        window.App.ui.openLiveEditor(obj.userData.id); 
+                        if(window.App && window.App.ui) window.App.ui.openLiveEditor(obj.userData.id); 
                     } 
                 }, 600);
             }
         } else { 
-            if(ThreeEngine.controls.enabled) window.App.modules.select(null); 
+            if(ThreeEngine.controls.enabled && window.App) window.App.modules.select(null); 
         }
     },
 
@@ -210,7 +216,6 @@ export const ThreeEngine = {
             }
         }
 
-        // Gesto Pinch/Zoom - Ajusta a Escala do Projeto inteiro
         if (ThreeEngine.gestureMode === 'pinch' && ThreeEngine.evCache.length === 2 && AppState.arActive && AppState.modoInteracao === 'projeto') {
             const curDiff = Math.hypot(ThreeEngine.evCache[0].clientX - ThreeEngine.evCache[1].clientX, ThreeEngine.evCache[0].clientY - ThreeEngine.evCache[1].clientY);
 
@@ -220,7 +225,7 @@ export const ThreeEngine = {
                 let newScale = ThreeEngine.rootNode.scale.x + delta;
                 newScale = Math.max(0.1, Math.min(newScale, 8.0)); 
                 
-                ThreeEngine.rootNode.scale.set(newScale, newScale, newScale);
+                ThreeEngine.rootNode.scale.setScalar(newScale);
                 const elScale = document.getElementById('camScale');
                 if(elScale) elScale.value = newScale; 
             }
@@ -231,10 +236,10 @@ export const ThreeEngine = {
         if (ThreeEngine.evCache.length === 1 && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) > 15) { 
             clearTimeout(ThreeEngine.pressTimer); 
             ThreeEngine.isLongPress = false; 
-            document.getElementById('longPressIndicator').style.display = 'none'; 
+            const ind = document.getElementById('longPressIndicator');
+            if(ind) ind.style.display = 'none'; 
         }
 
-        // Rotação da Caixa Azul (Perspectiva) usando arrasto de dedo
         if (ThreeEngine.gestureMode === 'arrasto_projeto' && AppState.arActive && AppState.modoInteracao === 'projeto' && ThreeEngine.dragStartPoint) {
             const deltaX = e.clientX - ThreeEngine.dragStartPoint.x;
             const deltaY = e.clientY - ThreeEngine.dragStartPoint.y;
@@ -256,7 +261,6 @@ export const ThreeEngine = {
             return;
         }
 
-        // Arrasto exclusivo do móvel (Peça destravada)
         if (ThreeEngine.gestureMode === 'arrasto_peca' && ThreeEngine.dragObj && (AppState.tool === 'move' || AppState.arActive)) {
             ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
             const modData = AppState.modules.find(m => m.id === ThreeEngine.dragObj.obj.userData.id); 
@@ -308,11 +312,13 @@ export const ThreeEngine = {
 
         ThreeEngine.isDown = false; 
         
-        // Retorna a câmera para giro 360 livre se a ferramenta for orbit
-        if(AppState.tool === 'orbit') ThreeEngine.controls.enabled = true; 
+        const bEP = document.getElementById('btnExitPrint');
+        const isPrintMode = bEP && bEP.style.display === 'block';
+        if(AppState.tool === 'orbit' && !isPrintMode) ThreeEngine.controls.enabled = true; 
         
         clearTimeout(ThreeEngine.pressTimer); 
-        document.getElementById('longPressIndicator').style.display = 'none';
+        const ind = document.getElementById('longPressIndicator');
+        if(ind) ind.style.display = 'none';
         
         ThreeEngine.dragStartPoint = null;
 
@@ -343,6 +349,7 @@ export const ThreeEngine = {
                         if(!mod.removedParts) mod.removedParts = [];
                         mod.removedParts.push(target.userData.partKey); 
                         if(window.App && window.App.modules) window.App.modules.refreshAll(); 
+                        if(window.App && window.App.ui) window.App.ui.toast(`Peça ocultada: ${target.userData.partKey}`, 'warning');
                     }
                 }
             } return;
@@ -350,12 +357,12 @@ export const ThreeEngine = {
 
         if (AppState.tool === 'add_comp' && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
             const hits = ThreeEngine.raycaster.intersectObject(ThreeEngine.floorCollider);
-            if (hits.length > 0 && window.App) { 
+            if (hits.length > 0 && window.App && window.App.modules) { 
                 window.App.modules.add('porta_avulsa', { posX: hits[0].point.x * 1000, posY: hits[0].point.y * 1000, posZ: hits[0].point.z * 1000, largura: 400, altura: 600 }); 
+                if(window.App.ui) window.App.ui.toast("Componente Inserido!"); 
             } return;
         }
         
-        // INTERAÇÃO FÍSICA: Abre e fecha gavetas, portas e luzes independente de girar a câmera
         if (AppState.tool === 'orbit') {
             if (Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
                 const hits = ThreeEngine.raycaster.intersectObjects(ThreeEngine.rootNode.children, true); 
@@ -373,7 +380,10 @@ export const ThreeEngine = {
                 if (anim) { 
                     anim.userData.isOpen = !anim.userData.isOpen; 
                     const mod = AppState.modules.find(m => m.id === anim.userData.modId); 
-                    if (mod) mod.compStates[anim.userData.compKey] = anim.userData.isOpen; 
+                    if (mod) {
+                        if (!mod.compStates) mod.compStates = {};
+                        mod.compStates[anim.userData.compKey] = anim.userData.isOpen; 
+                    }
                     AppState.animacoesAtivas = AppState.animacoesAtivas.filter(a => a.obj !== anim); 
                     AppState.animacoesAtivas.push({ obj: anim, type: anim.userData.type, target: anim.userData.isOpen }); 
                     StorageManager.save(); 
