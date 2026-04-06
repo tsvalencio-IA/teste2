@@ -1,6 +1,7 @@
 /**
  * src/3d/three-engine.js
- * Núcleo do WebGLRenderer, controles e lógica completa de interação física/AR original.
+ * Núcleo do WebGLRenderer, controles e lógica completa de interação física/AR.
+ * EVOLUÇÃO: Fotorrealismo HDRI, Fundo 3D Físico e Cinemática Suave.
  */
 
 import { AppState } from '../core/app-state.js';
@@ -13,6 +14,9 @@ export const ThreeEngine = {
     floorCollider: null, wallBackCollider: null, wallLeftCollider: null, wallRightCollider: null,
     raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2(), pDown: {x:0,y:0}, 
     dragObj: null, pressTimer: null, isLongPress: false, downTime: 0, isDown: false,
+    
+    // Novo: Plano 3D para renderização fotográfica real (Substitui o background de CSS)
+    bgPlane: null,
 
     init: () => {
         const c = document.getElementById('canvas-container'); 
@@ -20,16 +24,17 @@ export const ThreeEngine = {
         
         ThreeEngine.scene = new THREE.Scene();
         
-        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.7)); 
-        const dl = new THREE.DirectionalLight(0xffffff, 0.8); 
+        // Iluminação PBR Base
+        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.9)); 
+        const dl = new THREE.DirectionalLight(0xffffff, 1.2); 
         dl.position.set(10, 20, 10); 
         dl.castShadow = true; 
         dl.shadow.mapSize.width = 2048; 
         dl.shadow.mapSize.height = 2048; 
-        dl.shadow.bias = -0.001;
+        dl.shadow.bias = -0.0005; // Ajuste fino para evitar "acne" nas sombras PBR
         ThreeEngine.scene.add(dl);
         
-        const dl2 = new THREE.DirectionalLight(0xffffff, 0.3); 
+        const dl2 = new THREE.DirectionalLight(0xddeeff, 0.4); 
         dl2.position.set(-10, 10, -10); 
         ThreeEngine.scene.add(dl2);
         
@@ -50,10 +55,25 @@ export const ThreeEngine = {
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
         ThreeEngine.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
-        ThreeEngine.renderer.toneMappingExposure = 1.0; 
+        ThreeEngine.renderer.toneMappingExposure = 1.1; // Exposição realista de câmera
         
-        const pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
-        ThreeEngine.scene.environment = pmremGenerator.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+        // EVOLUÇÃO: Reflexos HDRI Fotorrealistas Reais em vez de RoomEnvironment genérico
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/2294472375_24a3b8ef46_o.jpg', (texture) => {
+            texture.mapping = THREE.EquirectangularReflectionMapping;
+            texture.encoding = THREE.sRGBEncoding;
+            ThreeEngine.scene.environment = texture;
+        });
+
+        // Configuração do Plano 3D de Fundo (Integração Imagem Real)
+        ThreeEngine.bgPlane = new THREE.Mesh(
+            new THREE.PlaneGeometry(1, 1),
+            new THREE.MeshBasicMaterial({ depthWrite: false, depthTest: false, toneMapped: false })
+        );
+        ThreeEngine.bgPlane.renderOrder = -999; // Sempre renderizado atrás de tudo
+        ThreeEngine.camera.add(ThreeEngine.bgPlane);
+        ThreeEngine.scene.add(ThreeEngine.camera);
+        ThreeEngine.bgPlane.visible = false;
 
         PostProcessing.init(ThreeEngine.renderer, ThreeEngine.scene, ThreeEngine.camera, c.clientWidth, c.clientHeight);
 
@@ -79,9 +99,53 @@ export const ThreeEngine = {
             ThreeEngine.camera.updateProjectionMatrix(); 
             ThreeEngine.renderer.setSize(c.clientWidth, c.clientHeight); 
             PostProcessing.resize(c.clientWidth, c.clientHeight);
+            ThreeEngine.resizeBackground();
         });
         
         ThreeEngine.animate();
+    },
+
+    // Novo: Constrói a foto 3D perfeitamente alinhada na câmera
+    setBackgroundImage: (base64OrUrl) => {
+        if (!base64OrUrl) {
+            ThreeEngine.bgPlane.visible = false;
+            return;
+        }
+        new THREE.TextureLoader().load(base64OrUrl, (tex) => {
+            tex.encoding = THREE.sRGBEncoding;
+            ThreeEngine.bgPlane.material.map = tex;
+            ThreeEngine.bgPlane.material.needsUpdate = true;
+            ThreeEngine.bgPlane.visible = true;
+            ThreeEngine.resizeBackground();
+        });
+    },
+
+    // Novo: Matemátca de frustum para "background-size: cover" no plano 3D
+    resizeBackground: () => {
+        if (!ThreeEngine.bgPlane || !ThreeEngine.bgPlane.material.map || !ThreeEngine.bgPlane.visible) return;
+        
+        const aspect = window.innerWidth / window.innerHeight;
+        const texAspect = ThreeEngine.bgPlane.material.map.image.width / ThreeEngine.bgPlane.material.map.image.height;
+        const distance = 100; // Distância virtual
+        
+        ThreeEngine.bgPlane.position.z = -distance;
+        
+        const vFov = THREE.MathUtils.degToRad(ThreeEngine.camera.fov);
+        const height = 2 * Math.tan(vFov / 2) * distance;
+        const width = height * aspect;
+        
+        ThreeEngine.bgPlane.scale.set(width, height, 1);
+        
+        const planeAspect = width / height;
+        if (planeAspect > texAspect) {
+            const scaleY = texAspect / planeAspect;
+            ThreeEngine.bgPlane.material.map.repeat.set(1, scaleY);
+            ThreeEngine.bgPlane.material.map.offset.set(0, (1 - scaleY) / 2);
+        } else {
+            const scaleX = planeAspect / texAspect;
+            ThreeEngine.bgPlane.material.map.repeat.set(scaleX, 1);
+            ThreeEngine.bgPlane.material.map.offset.set((1 - scaleX) / 2, 0);
+        }
     },
 
     getPtr: (e) => {
@@ -320,21 +384,23 @@ export const ThreeEngine = {
     animate: () => {
         requestAnimationFrame(ThreeEngine.animate);
         
+        // EVOLUÇÃO: Cinemática suavizada (peso de marcenaria real). Velocidade alterada de 0.15 para 0.08
         for (let i = AppState.animacoesAtivas.length - 1; i >= 0; i--) {
             const a = AppState.animacoesAtivas[i]; 
             const obj = a.obj; 
-            const speed = 0.15; 
+            const speed = 0.08; 
+            
             if (a.type === 'door_hinge') { 
                 const side = obj.userData.hinge === 'left' ? -1 : 1; 
                 const zD = obj.userData.zDir || 1; 
                 const targetAngle = a.target ? (Math.PI / 1.6 * side * zD) : 0; 
                 obj.rotation.y += (targetAngle - obj.rotation.y) * speed; 
-                if (Math.abs(obj.rotation.y - targetAngle) < 0.01) { obj.rotation.y = targetAngle; AppState.animacoesAtivas.splice(i, 1); } 
+                if (Math.abs(obj.rotation.y - targetAngle) < 0.005) { obj.rotation.y = targetAngle; AppState.animacoesAtivas.splice(i, 1); } 
             } else if (a.type === 'door_flap') { 
                 const zD = obj.userData.zDir || 1; 
                 const targetAngle = a.target ? (-Math.PI / 2.2 * zD) : 0; 
                 obj.rotation.x += (targetAngle - obj.rotation.x) * speed; 
-                if (Math.abs(obj.rotation.x - targetAngle) < 0.01) { obj.rotation.x = targetAngle; AppState.animacoesAtivas.splice(i, 1); } 
+                if (Math.abs(obj.rotation.x - targetAngle) < 0.005) { obj.rotation.x = targetAngle; AppState.animacoesAtivas.splice(i, 1); } 
             } else if (a.type === 'door_slide') { 
                 const targetPos = a.target ? (obj.userData.baseX + obj.userData.travelX) : obj.userData.baseX; 
                 obj.position.x += (targetPos - obj.position.x) * speed; 
