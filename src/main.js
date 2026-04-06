@@ -1,7 +1,7 @@
 /**
  * src/main.js
  * Ponto de entrada (Bootstrapper). Orquestra os módulos e os expõe ao HTML.
- * CORREÇÃO PERICIAL: Blindagem completa de DOM (Null checks) para evitar travamento da engine.
+ * CORREÇÃO ABSOLUTA: Blindagem de FileReader (Blob detection) para não explodir a Engine.
  */
 
 import { AppState } from './core/app-state.js';
@@ -43,33 +43,46 @@ window.App = {
         UIController.toast("Fábrica 3D Realista Iniciada! Projeto Recuperado.", "success"); 
     },
     
-    processGlobalPhoto: (input) => { 
-        if (input.files && input.files[0]) { 
-            const f = input.files[0]; 
-            const r = new FileReader(); 
-            r.onload = () => { 
-                const base64Data = r.result;
-                AppState.imagemFundoURL = base64Data; 
-                AppState.imagemFundoBase64 = base64Data.split(',')[1]; 
-                
-                const imgPreview = document.getElementById('imagePreview'); 
-                if(imgPreview) imgPreview.src = AppState.imagemFundoURL; 
-                
-                const previewContainer = document.getElementById('imgPreviewContainer'); 
-                if(previewContainer) previewContainer.style.display = 'block'; 
-                
-                if (AppState.arActive) {
-                    ThreeEngine.setBackgroundImage(AppState.imagemFundoURL);
-                    const btnTxt = document.getElementById('arBtnText');
-                    if (btnTxt) btnTxt.innerText = 'Desativar Fundo Real'; 
-                    SceneBuilder.rebuildScene(); 
-                    UIController.fecharHUDs();
-                }
-                StorageManager.save();
-                UIController.toast("Foto Carregada e Guardada!", "success"); 
-            }; 
-            r.readAsDataURL(f);
-        } 
+    processGlobalPhoto: (arg) => { 
+        let file = null;
+        
+        // Blindagem Pericial: Captura o arquivo não importa de onde o evento venha
+        if (arg instanceof File || arg instanceof Blob) {
+            file = arg;
+        } else if (arg && arg.target && arg.target.files && arg.target.files.length > 0) {
+            file = arg.target.files[0];
+        } else if (arg && arg.files && arg.files.length > 0) {
+            file = arg.files[0];
+        }
+        
+        // Se o usuário cancelar a seleção ou arquivo for corrompido, aborta sem quebrar a Engine
+        if (!file || !(file instanceof Blob)) {
+            return;
+        }
+
+        const r = new FileReader(); 
+        r.onload = () => { 
+            const base64Data = r.result;
+            AppState.imagemFundoURL = base64Data; 
+            AppState.imagemFundoBase64 = base64Data.split(',')[1]; 
+            
+            const imgPreview = document.getElementById('imagePreview'); 
+            if(imgPreview) imgPreview.src = AppState.imagemFundoURL; 
+            
+            const previewContainer = document.getElementById('imgPreviewContainer'); 
+            if(previewContainer) previewContainer.style.display = 'block'; 
+            
+            if (AppState.arActive) {
+                ThreeEngine.setBackgroundImage(AppState.imagemFundoURL);
+                const btnTxt = document.getElementById('arBtnText');
+                if (btnTxt) btnTxt.innerText = 'Desativar Fundo Real'; 
+                SceneBuilder.rebuildScene(); 
+                UIController.fecharHUDs();
+            }
+            StorageManager.save();
+            UIController.toast("Foto Carregada com Sucesso!", "success"); 
+        }; 
+        r.readAsDataURL(file);
     },
 
     modules: {
