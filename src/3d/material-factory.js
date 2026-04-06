@@ -1,7 +1,6 @@
 /**
  * src/3d/material-factory.js
  * Fábrica de materiais fotorrealistas SENIORES (PBR).
- * Evolução: Uso de MeshPhysicalMaterial para simular verniz automotivo (clearcoat) no MDF Brilho e Índice de Refração (IOR) em vidros.
  */
 
 export const MatDefs = {
@@ -71,7 +70,6 @@ export const MaterialFactory = {
 
     getRealMaterial: (key) => {
         let def = MatDefs[key] || MatDefs.amadeirado_padrao;
-        // Tudo é PhysicalMaterial para reagir brutalmente ao HDRI da foto.
         return new THREE.MeshPhysicalMaterial(def);
     },
 
