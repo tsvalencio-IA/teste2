@@ -58,10 +58,8 @@ window.App = {
                 if(previewContainer) previewContainer.style.display = 'block'; 
                 
                 if (AppState.arActive) {
-                    const container = document.getElementById('canvas-container'); 
-                    container.style.backgroundImage = `url(${AppState.imagemFundoURL})`; 
-                    container.style.backgroundSize = 'cover'; 
-                    container.style.backgroundPosition = 'center'; 
+                    // CORREÇÃO: Aplica no renderizador 3D, e não mais no CSS
+                    ThreeEngine.setBackgroundImage(AppState.imagemFundoURL);
                     document.getElementById('arBtnText').innerText = 'Desativar Fundo Real'; 
                     SceneBuilder.rebuildScene(); 
                     UIController.fecharHUDs();
@@ -164,13 +162,11 @@ window.App = {
         },
         toggleAR: () => { 
             AppState.arActive = !AppState.arActive; 
-            const container = document.getElementById('canvas-container'); 
             const txt = document.getElementById('arBtnText'); 
             if (AppState.arActive) { 
                 if(AppState.imagemFundoURL) {
-                    container.style.backgroundImage = `url(${AppState.imagemFundoURL})`; 
-                    container.style.backgroundSize = 'cover'; 
-                    container.style.backgroundPosition = 'center'; 
+                    // CORREÇÃO: Chama o 3D puro
+                    ThreeEngine.setBackgroundImage(AppState.imagemFundoURL);
                     if (txt) txt.innerText = 'Desativar Fundo Real'; 
                     SceneBuilder.rebuildScene();
                     UIController.toast("Fundo ativado. Ajuste a Caixa Azul nas paredes!", "success"); 
@@ -178,8 +174,8 @@ window.App = {
                     document.getElementById('fotoCliente').click(); 
                 }
             } else { 
-                container.style.background = 'radial-gradient(circle, #ffffff 0%, #cbd5e1 100%)'; 
-                container.style.backgroundImage = 'none'; 
+                // CORREÇÃO: Limpa o render 3D
+                ThreeEngine.setBackgroundImage(null);
                 if (txt) txt.innerText = 'Ativar Fundo Real'; 
                 SceneBuilder.rebuildScene(); 
             } 
