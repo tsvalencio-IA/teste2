@@ -1,12 +1,10 @@
 /**
  * src/3d/material-factory.js
  * Fábrica de materiais fotorrealistas SENIORES (PBR).
- * EVOLUÇÃO ABSOLUTA: Geração Procedural de Texturas (Veios de Madeira e Noise) para quebrar o "efeito plástico".
+ * CORREÇÃO: Sem imports destrutivos. Texturas Procedurais ativas.
  */
 
-import * as THREE from 'three';
-
-// --- GERADORES DE TEXTURA PROCEDURAL (CRIAM REALISMO SEM PRECISAR BAIXAR IMAGENS) ---
+// Geradores de Textura Procedural (Criar realismo na placa de vídeo)
 const TextureGen = {
     noiseCache: null,
     
@@ -36,7 +34,6 @@ const TextureGen = {
         ctx.fillStyle = `#${hexColor.toString(16).padStart(6, '0')}`;
         ctx.fillRect(0, 0, 1024, 1024);
         
-        // Simula veios da madeira
         ctx.globalAlpha = 0.05;
         for (let i = 0; i < 200; i++) {
             ctx.fillStyle = Math.random() > 0.5 ? '#000000' : '#ffffff';
@@ -53,16 +50,14 @@ const TextureGen = {
 };
 
 export const MatDefs = {
-    // MDF Madeirados (Recebem Textura de Veios e BumpMap para refletir luz como madeira real)
     'amadeirado_padrao': { color: 0x8B5A2B, roughness: 0.85, metalness: 0.0, isWood: true },
     'amadeirado_claro': { color: 0xD2B48C, roughness: 0.8, metalness: 0.0, isWood: true }, 
     'louro_freijo': { color: 0x9E7A5A, roughness: 0.85, metalness: 0.0, isWood: true },
     'carvalho_hanover': { color: 0x8A6343, roughness: 0.85, metalness: 0.0, isWood: true },
     'nogueira_cadiz': { color: 0x5C4033, roughness: 0.9, metalness: 0.0, isWood: true },
     'tauari': { color: 0xBA8C63, roughness: 0.8, metalness: 0.0, isWood: true },
-    'madeira_fuel': { color: 0x3a1f11, roughness: 0.75, metalness: 0.05, isWood: true }, // Fuel mais escuro e elegante
+    'madeira_fuel': { color: 0x3a1f11, roughness: 0.75, metalness: 0.05, isWood: true },
     
-    // MDF Fosco / TX (Recebem Noise/BumpMap sutil para não parecer plástico)
     'mdf_branco_tx': { color: 0xF5F5F5, roughness: 0.95, metalness: 0.0, isTX: true },
     'mdf_preto_tx': { color: 0x181818, roughness: 0.9, metalness: 0.0, isTX: true },
     'mdf_grafite': { color: 0x333333, roughness: 0.8, metalness: 0.0, isTX: true },
@@ -72,30 +67,25 @@ export const MatDefs = {
     'mdf_rosa_milkshake': { color: 0xFFB6C1, roughness: 0.85, metalness: 0.0, isTX: true },
     'mdf_areia': { color: 0xE8DCC4, roughness: 0.85, metalness: 0.0, isTX: true },
     
-    // MDF Alto Brilho / Acrílicos (Mercadão) - Clearcoat extremo para brilhar com os Spotlights
     'mdf_branco_diamante': { color: 0xFFFFFF, roughness: 0.1, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 },
     'mdf_azul_mercadao': { color: 0x1565C0, roughness: 0.2, metalness: 0.0, clearcoat: 0.9, clearcoatRoughness: 0.1 },
     'mdf_vermelho_mercadao': { color: 0xD32F2F, roughness: 0.15, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05 }, 
     'mdf_vermelho_fini': { color: 0xE3242B, roughness: 0.2, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.1 },
     'misto': { color: 0xFAFAFA, frontColor: 0x8B5A2B, roughness: 0.8, metalness: 0.0, isTX: true },
     
-    // Vidros Arquitetônicos Reais
     'vidro_incolor': { color: 0xffffff, roughness: 0.0, metalness: 0.1, transmission: 1.0, ior: 1.52, thickness: 0.05, transparent: true, opacity: 1 },
     'vidro_fume': { color: 0x222222, roughness: 0.0, metalness: 0.2, transmission: 0.8, ior: 1.52, thickness: 0.05, transparent: true, opacity: 1 },
     'vidro_bronze': { color: 0x6e4b33, roughness: 0.0, metalness: 0.3, transmission: 0.85, ior: 1.52, thickness: 0.05, transparent: true, opacity: 1 },
     'vidro_reflecta': { color: 0x8A7B6E, roughness: 0.05, metalness: 0.9, transmission: 0.3, ior: 2.0, thickness: 0.02, transparent: true, opacity: 1 },
     'espelho': { color: 0xffffff, roughness: 0.0, metalness: 1.0, clearcoat: 1.0 },
     
-    // Metais
     'metal_preto': { color: 0x151515, roughness: 0.4, metalness: 0.9 },
     'metal_dourado': { color: 0xD4AF37, roughness: 0.2, metalness: 1.0, clearcoat: 0.5 },
     'metal_cobre': { color: 0xB87333, roughness: 0.25, metalness: 1.0, clearcoat: 0.5 },
     
-    // Tecidos e Estofados
     'tecido_linho_cinza': { color: 0x888888, roughness: 1.0, metalness: 0.0, isTX: true },
     'tecido_couro_marrom': { color: 0x4A3022, roughness: 0.6, metalness: 0.0, isTX: true },
     
-    // Iluminação
     'led': { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 4.0 },
     'rodape': { color: 0x111111, roughness: 0.9, metalness: 0.0, isTX: true }
 };
@@ -116,15 +106,14 @@ export const MaterialFactory = {
         let def = MatDefs[key] || MatDefs.amadeirado_padrao;
         let matProps = { ...def };
 
-        // Aplicação de Fotorrealismo Procedural
         if (def.isWood) {
             matProps.map = TextureGen.createWoodMap(def.color);
-            matProps.color = 0xffffff; // A cor vem da textura agora
+            matProps.color = 0xffffff;
             matProps.bumpMap = TextureGen.getNoiseMap();
             matProps.bumpScale = 0.002;
         } else if (def.isTX) {
             matProps.bumpMap = TextureGen.getNoiseMap();
-            matProps.bumpScale = 0.001; // Leve porosidade
+            matProps.bumpScale = 0.001; 
         }
 
         return new THREE.MeshPhysicalMaterial(matProps);
