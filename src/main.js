@@ -1,6 +1,7 @@
 /**
  * src/main.js
  * Ponto de entrada (Bootstrapper). Orquestra os módulos e os expõe ao HTML.
+ * CORREÇÃO PERICIAL: Blindagem completa de DOM (Null checks) para evitar travamento da engine.
  */
 
 import { AppState } from './core/app-state.js';
@@ -58,9 +59,9 @@ window.App = {
                 if(previewContainer) previewContainer.style.display = 'block'; 
                 
                 if (AppState.arActive) {
-                    // CORREÇÃO: Aplica no renderizador 3D, e não mais no CSS
                     ThreeEngine.setBackgroundImage(AppState.imagemFundoURL);
-                    document.getElementById('arBtnText').innerText = 'Desativar Fundo Real'; 
+                    const btnTxt = document.getElementById('arBtnText');
+                    if (btnTxt) btnTxt.innerText = 'Desativar Fundo Real'; 
                     SceneBuilder.rebuildScene(); 
                     UIController.fecharHUDs();
                 }
@@ -98,7 +99,8 @@ window.App = {
             AppState.selectedModule = id; 
             ThreeEngine.highlightSelection(id); 
             UIController.renderList(); 
-            if (id && document.getElementById('floatingEditor').classList.contains('active')) { 
+            const editor = document.getElementById('floatingEditor');
+            if (id && editor && editor.classList.contains('active')) { 
                 UIController.openLiveEditor(id); 
             } 
         },
@@ -134,7 +136,8 @@ window.App = {
         },
         gerarPlanoCorte: () => { 
             CutPlanEngine.generate(); 
-            document.getElementById('cutPlanContainer').style.display = 'block'; 
+            const container = document.getElementById('cutPlanContainer');
+            if (container) container.style.display = 'block'; 
             UIController.toast("Plano de Corte (Nesting) Gerado!"); 
         }
     },
@@ -142,21 +145,21 @@ window.App = {
     ar: {
         setModoCamera: (m) => { 
             AppState.tool = m; 
-            document.getElementById('btnOrbit').className = `tool-btn ${m==='orbit'?'active':''}`; 
-            document.getElementById('btnMove').className = `tool-btn ${m==='move'?'active':''}`; 
-            const btnAdd = document.getElementById('btnAddComp'); 
-            if (btnAdd) btnAdd.className = `tool-btn ${m==='add_comp'?'active':''}`; 
-            const btnRm = document.getElementById('btnRemComp'); 
-            if(btnRm) btnRm.className = `tool-btn eraser ${m==='remove_part'?'active':''}`; 
+            const bO = document.getElementById('btnOrbit'); if(bO) bO.className = `tool-btn ${m==='orbit'?'active':''}`; 
+            const bM = document.getElementById('btnMove'); if(bM) bM.className = `tool-btn ${m==='move'?'active':''}`; 
+            const bA = document.getElementById('btnAddComp'); if(bA) bA.className = `tool-btn ${m==='add_comp'?'active':''}`; 
+            const bR = document.getElementById('btnRemComp'); if(bR) bR.className = `tool-btn eraser ${m==='remove_part'?'active':''}`; 
         },
         setModoInteracao: (m) => { 
             AppState.modoInteracao = m; 
-            document.getElementById('sw-peca').className = `switch-btn ${m==='peca'?'active':''}`; 
-            document.getElementById('sw-projeto').className = `switch-btn ${m==='projeto'?'active':''}`; 
+            const sP = document.getElementById('sw-peca'); if(sP) sP.className = `switch-btn ${m==='peca'?'active':''}`; 
+            const sPr = document.getElementById('sw-projeto'); if(sPr) sPr.className = `switch-btn ${m==='projeto'?'active':''}`; 
         },
         syncRoomBounds: () => { 
-            AppState.roomWidth = parseFloat(document.getElementById('roomW').value) || 4500; 
-            AppState.roomDepth = parseFloat(document.getElementById('roomD').value) || 8000; 
+            const elW = document.getElementById('roomW');
+            const elD = document.getElementById('roomD');
+            AppState.roomWidth = elW ? parseFloat(elW.value) || 4500 : 4500; 
+            AppState.roomDepth = elD ? parseFloat(elD.value) || 8000 : 8000; 
             SceneBuilder.rebuildScene(); 
             StorageManager.save(); 
         },
@@ -165,49 +168,61 @@ window.App = {
             const txt = document.getElementById('arBtnText'); 
             if (AppState.arActive) { 
                 if(AppState.imagemFundoURL) {
-                    // CORREÇÃO: Chama o 3D puro
                     ThreeEngine.setBackgroundImage(AppState.imagemFundoURL);
                     if (txt) txt.innerText = 'Desativar Fundo Real'; 
                     SceneBuilder.rebuildScene();
-                    UIController.toast("Fundo ativado. Ajuste a Caixa Azul nas paredes!", "success"); 
+                    UIController.toast("Fundo ativado em 360º!", "success"); 
                 } else {
-                    document.getElementById('fotoCliente').click(); 
+                    const fc = document.getElementById('fotoCliente');
+                    if (fc) fc.click(); 
                 }
             } else { 
-                // CORREÇÃO: Limpa o render 3D
                 ThreeEngine.setBackgroundImage(null);
                 if (txt) txt.innerText = 'Ativar Fundo Real'; 
                 SceneBuilder.rebuildScene(); 
             } 
         },
         applyTransform: () => { 
-            const s = parseFloat(document.getElementById('camScale').value); 
-            ThreeEngine.rootNode.scale.set(s, s, s); 
-            ThreeEngine.rootNode.rotation.x = parseFloat(document.getElementById('camRotX').value); 
-            ThreeEngine.rootNode.rotation.y = parseFloat(document.getElementById('camRotY').value); 
-            ThreeEngine.rootNode.position.y = parseFloat(document.getElementById('camPosY').value); 
+            const elScale = document.getElementById('camScale');
+            const elRotX = document.getElementById('camRotX');
+            const elRotY = document.getElementById('camRotY');
+            const elPosY = document.getElementById('camPosY');
+            
+            if (elScale && elScale.value) ThreeEngine.rootNode.scale.setScalar(parseFloat(elScale.value) || 1); 
+            if (elRotX && elRotX.value) ThreeEngine.rootNode.rotation.x = parseFloat(elRotX.value) || 0; 
+            if (elRotY && elRotY.value) ThreeEngine.rootNode.rotation.y = parseFloat(elRotY.value) || 0; 
+            if (elPosY && elPosY.value) ThreeEngine.rootNode.position.y = parseFloat(elPosY.value) || 0; 
         },
         resetAR: () => { 
             ThreeEngine.rootNode.rotation.set(0,0,0); 
             ThreeEngine.rootNode.position.set(0,0,0); 
-            ThreeEngine.rootNode.scale.set(1,1,1); 
-            document.getElementById('camScale').value = 1; 
-            document.getElementById('camRotX').value = 0; 
-            document.getElementById('camRotY').value = 0; 
-            document.getElementById('camPosY').value = 0; 
+            ThreeEngine.rootNode.scale.setScalar(1); 
+            
+            const elScale = document.getElementById('camScale'); if(elScale) elScale.value = 1; 
+            const elRotX = document.getElementById('camRotX'); if(elRotX) elRotX.value = 0; 
+            const elRotY = document.getElementById('camRotY'); if(elRotY) elRotY.value = 0; 
+            const elPosY = document.getElementById('camPosY'); if(elPosY) elPosY.value = 0; 
         },
         enterPrintMode: () => { 
             UIController.fecharHUDs(); 
             UIController.fecharEditor(); 
-            ['mainHeader','mainSignature','mainControls','toolModeContainer'].forEach(id => document.getElementById(id).classList.add('hide-for-print')); 
-            document.getElementById('btnExitPrint').style.display='block'; 
+            ['mainHeader','mainSignature','mainControls','toolModeContainer'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hide-for-print');
+            }); 
+            const bEP = document.getElementById('btnExitPrint');
+            if (bEP) bEP.style.display='block'; 
             ThreeEngine.controls.enableRotate = false; 
             ThreeEngine.controls.enablePan = false; 
             ThreeEngine.controls.enableZoom = false; 
         },
         exitPrintMode: () => { 
-            ['mainHeader','mainSignature','mainControls','toolModeContainer'].forEach(id => document.getElementById(id).classList.remove('hide-for-print')); 
-            document.getElementById('btnExitPrint').style.display='none'; 
+            ['mainHeader','mainSignature','mainControls','toolModeContainer'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.remove('hide-for-print');
+            }); 
+            const bEP = document.getElementById('btnExitPrint');
+            if (bEP) bEP.style.display='none'; 
             ThreeEngine.controls.enableRotate = true; 
             ThreeEngine.controls.enablePan = true; 
             ThreeEngine.controls.enableZoom = true; 
