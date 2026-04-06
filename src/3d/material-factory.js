@@ -1,6 +1,7 @@
 /**
  * src/3d/material-factory.js
  * Fábrica de materiais fotorrealistas SENIORES (PBR).
+ * CORREÇÃO PERICIAL: Restauração da vibração das cores da marca (MeshStandard) + Vidros Físicos (MeshPhysical).
  */
 
 export const MatDefs = {
@@ -21,31 +22,31 @@ export const MatDefs = {
     'mdf_rosa_milkshake': { color: 0xFFB6C1, roughness: 0.8, metalness: 0.0, label: "MDF Rosa Milkshake", mult: 1.4 },
     'mdf_areia': { color: 0xE8DCC4, roughness: 0.8, metalness: 0.0, label: "MDF Areia", mult: 1.0 },
     
-    // MDF Alto Brilho (Mercadão) - Requer Clearcoat (Verniz)
-    'mdf_branco_diamante': { color: 0xFFFFFF, roughness: 0.1, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, label: "MDF Branco Diamante (Brilho)", mult: 1.4 },
-    'mdf_azul_mercadao': { color: 0x1E88E5, roughness: 0.2, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.1, label: "MDF Azul Mercadão", mult: 1.1 },
-    'mdf_vermelho_mercadao': { color: 0xE3000F, roughness: 0.15, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, label: "MDF Vermelho Mercadão", mult: 1.2 }, 
-    'mdf_vermelho_fini': { color: 0xE3242B, roughness: 0.2, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.1, label: "MDF Vermelho Fini", mult: 1.2 },
+    // Cores Vivas do Mercadão (Alta Exposição)
+    'mdf_branco_diamante': { color: 0xFFFFFF, roughness: 0.2, metalness: 0.1, label: "MDF Branco Diamante (Brilho)", mult: 1.4 },
+    'mdf_azul_mercadao': { color: 0x1E88E5, roughness: 0.3, metalness: 0.1, label: "MDF Azul Mercadão", mult: 1.1 },
+    'mdf_vermelho_mercadao': { color: 0xE3000F, roughness: 0.2, metalness: 0.1, label: "MDF Vermelho Mercadão", mult: 1.2 }, 
+    'mdf_vermelho_fini': { color: 0xE3242B, roughness: 0.3, metalness: 0.1, label: "MDF Vermelho Fini", mult: 1.2 },
     'misto': { color: 0xFAFAFA, frontColor: 0x8B5A2B, roughness: 0.8, metalness: 0.0, label: "Misto (Branco/Madeira)", mult: 1.1 },
     
-    // Vidros e Acrílicos - Requer Transmission e IOR
+    // Vidros e Acrílicos (Estes usam Physical Material para ótica real)
     'vidro_incolor': { color: 0xffffff, roughness: 0.0, metalness: 0.1, transmission: 1.0, ior: 1.5, thickness: 0.02, transparent: true, opacity: 1, label: "Vidro Incolor", mult: 2.5 },
     'vidro_fume': { color: 0x555555, roughness: 0.0, metalness: 0.2, transmission: 0.9, ior: 1.5, thickness: 0.02, transparent: true, opacity: 1, label: "Vidro Fumê", mult: 2.5 },
     'vidro_bronze': { color: 0x8A6343, roughness: 0.0, metalness: 0.3, transmission: 0.9, ior: 1.5, thickness: 0.02, transparent: true, opacity: 1, label: "Vidro Bronze", mult: 2.5 },
     'vidro_reflecta': { color: 0xA08A75, roughness: 0.05, metalness: 0.9, transmission: 0.5, ior: 2.0, thickness: 0.02, transparent: true, opacity: 1, label: "Vidro Reflecta", mult: 2.5 },
-    'espelho': { color: 0xffffff, roughness: 0.0, metalness: 1.0, clearcoat: 1.0, label: "Espelho Prata" },
+    'espelho': { color: 0xffffff, roughness: 0.0, metalness: 1.0, label: "Espelho Prata" },
     
     // Metais
     'metal_preto': { color: 0x1A1A1A, roughness: 0.4, metalness: 0.8, label: "Metalon Preto", mult: 1.5 },
-    'metal_dourado': { color: 0xD4AF37, roughness: 0.2, metalness: 1.0, clearcoat: 0.5, label: "Metal Dourado / Inox", mult: 2.0 },
-    'metal_cobre': { color: 0xB87333, roughness: 0.2, metalness: 1.0, clearcoat: 0.5, label: "Metal Cobre", mult: 2.0 },
+    'metal_dourado': { color: 0xD4AF37, roughness: 0.2, metalness: 1.0, label: "Metal Dourado / Inox", mult: 2.0 },
+    'metal_cobre': { color: 0xB87333, roughness: 0.2, metalness: 1.0, label: "Metal Cobre", mult: 2.0 },
     
     // Tecidos
     'tecido_linho_cinza': { color: 0x9E9E9E, roughness: 1.0, metalness: 0.0, label: "Tecido Linho", mult: 1.2 },
     'tecido_couro_marrom': { color: 0x5C4033, roughness: 0.7, metalness: 0.0, label: "Couro Marrom", mult: 1.2 },
     
     // Funcionais
-    'led': { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 3.0, label: "Fita LED" },
+    'led': { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.0, label: "Fita LED" },
     'rodape': { color: 0x222222, roughness: 0.9, metalness: 0.0, label: "Rodapé Preto" }
 };
 
@@ -70,18 +71,22 @@ export const MaterialFactory = {
 
     getRealMaterial: (key) => {
         let def = MatDefs[key] || MatDefs.amadeirado_padrao;
-        return new THREE.MeshPhysicalMaterial(def);
+        
+        // Apenas vidros recebem física de lente para não escurecer os MDFs
+        if (key === 'vidro_incolor' || key === 'vidro_fume' || key === 'vidro_bronze' || key === 'vidro_reflecta') {
+            return new THREE.MeshPhysicalMaterial(def);
+        }
+        return new THREE.MeshStandardMaterial(def);
     },
 
     getLogoMercadaoMaterial: () => {
         const tex = MaterialFactory.createLogoTexture("MERCADÃO DOS ÓCULOS", "#E3000F", "#FFFFFF");
-        return new THREE.MeshPhysicalMaterial({ 
+        return new THREE.MeshStandardMaterial({ 
             map: tex, 
             emissive: 0x330000, 
-            emissiveIntensity: 0.8, 
+            emissiveIntensity: 0.5, 
             roughness: 0.2,
-            clearcoat: 1.0,
-            clearcoatRoughness: 0.1
+            metalness: 0.1
         });
     }
 };
