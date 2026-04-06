@@ -1,7 +1,7 @@
 /**
  * src/3d/three-engine.js
  * Núcleo do WebGLRenderer.
- * CORREÇÃO PERICIAL: Iluminação Física de Loja de Shopping (SpotLights) e Sombras Dramáticas.
+ * CORREÇÃO: Iluminação de Shopping (SpotLights) e Fotorrealismo. Sem erros de módulo.
  */
 
 import { AppState } from '../core/app-state.js';
@@ -25,16 +25,13 @@ export const ThreeEngine = {
 
         ThreeEngine.scene = new THREE.Scene();
         
-        // --- ILUMINAÇÃO FOTORREALISTA DE VAREJO (RETAIL LIGHTING) ---
-        // 1. Luz ambiente suave (rebate das paredes)
         ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.6)); 
         
-        // 2. Trilho de Spotlights do Teto (O segredo do Fotorrealismo de Joalheria/Ótica)
         const createSpotlight = (px, pz) => {
-            const spot = new THREE.SpotLight(0xfff5e6, 2.5); // Luz levemente quente
-            spot.position.set(px, 4, pz); // Altura do teto da loja
+            const spot = new THREE.SpotLight(0xfff5e6, 2.5);
+            spot.position.set(px, 4, pz); 
             spot.angle = Math.PI / 4;
-            spot.penumbra = 0.5; // Borda da sombra suave
+            spot.penumbra = 0.5; 
             spot.decay = 1.5;
             spot.distance = 15;
             spot.castShadow = true;
@@ -44,22 +41,20 @@ export const ThreeEngine = {
             return spot;
         };
 
-        ThreeEngine.scene.add(createSpotlight(0, 2));    // Centro/Frente
-        ThreeEngine.scene.add(createSpotlight(3, 0));    // Direita
-        ThreeEngine.scene.add(createSpotlight(-3, 0));   // Esquerda
-        ThreeEngine.scene.add(createSpotlight(0, -3));   // Fundo
+        ThreeEngine.scene.add(createSpotlight(0, 2));   
+        ThreeEngine.scene.add(createSpotlight(3, 0));    
+        ThreeEngine.scene.add(createSpotlight(-3, 0));   
+        ThreeEngine.scene.add(createSpotlight(0, -3));   
 
         ThreeEngine.camera = new THREE.PerspectiveCamera(45, c.clientWidth / c.clientHeight, 0.1, 1000); 
-        ThreeEngine.camera.position.set(4, 3, 6); // Câmera na altura dos olhos humana (mais baixo)
+        ThreeEngine.camera.position.set(4, 3, 6); 
         
         ThreeEngine.renderer = new THREE.WebGLRenderer({ 
             canvas: cv, antialias: true, alpha: true, 
             preserveDrawingBuffer: true, powerPreference: "high-performance" 
         }); 
         
-        // Motor Físico Ligado (Luzes decaem com o quadrado da distância)
         ThreeEngine.renderer.useLegacyLights = false;
-        
         ThreeEngine.renderer.setClearColor(0x1a1a1a, 1); 
         ThreeEngine.renderer.setSize(c.clientWidth, c.clientHeight); 
         ThreeEngine.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -89,7 +84,7 @@ export const ThreeEngine = {
 
         ThreeEngine.controls = new THREE.OrbitControls(ThreeEngine.camera, cv); 
         ThreeEngine.controls.enableDamping = true; 
-        ThreeEngine.controls.target.set(0, 0.8, 0); // Foco no centro do móvel, não no pé
+        ThreeEngine.controls.target.set(0, 0.8, 0); 
         
         ThreeEngine.rootNode = new THREE.Group(); 
         ThreeEngine.scene.add(ThreeEngine.rootNode);
@@ -376,6 +371,7 @@ export const ThreeEngine = {
                         if(!mod.removedParts) mod.removedParts = [];
                         mod.removedParts.push(target.userData.partKey); 
                         if(window.App && window.App.modules) window.App.modules.refreshAll(); 
+                        if(window.App && window.App.ui) window.App.ui.toast(`Peça ocultada: ${target.userData.partKey}`, 'warning');
                     }
                 }
             } return;
@@ -385,6 +381,7 @@ export const ThreeEngine = {
             const hits = ThreeEngine.raycaster.intersectObject(ThreeEngine.floorCollider);
             if (hits.length > 0 && window.App && window.App.modules) { 
                 window.App.modules.add('porta_avulsa', { posX: hits[0].point.x * 1000, posY: hits[0].point.y * 1000, posZ: hits[0].point.z * 1000, largura: 400, altura: 600 }); 
+                if(window.App.ui) window.App.ui.toast("Componente Inserido!"); 
             } return;
         }
         
