@@ -1,7 +1,6 @@
 /**
  * src/main.js
  * Ponto de entrada (Bootstrapper). Orquestra os módulos e os expõe ao HTML.
- * CORREÇÃO ABSOLUTA: Blindagem de FileReader (Blob detection) para não explodir a Engine.
  */
 
 import { AppState } from './core/app-state.js';
@@ -43,22 +42,16 @@ window.App = {
         UIController.toast("Fábrica 3D Realista Iniciada! Projeto Recuperado.", "success"); 
     },
     
-    processGlobalPhoto: (arg) => { 
+    processGlobalPhoto: (inputData) => { 
         let file = null;
         
-        // Blindagem Pericial: Captura o arquivo não importa de onde o evento venha
-        if (arg instanceof File || arg instanceof Blob) {
-            file = arg;
-        } else if (arg && arg.target && arg.target.files && arg.target.files.length > 0) {
-            file = arg.target.files[0];
-        } else if (arg && arg.files && arg.files.length > 0) {
-            file = arg.files[0];
+        if (inputData && inputData.files && inputData.files.length > 0) {
+            file = inputData.files[0];
+        } else if (inputData && inputData.target && inputData.target.files && inputData.target.files.length > 0) {
+            file = inputData.target.files[0];
         }
         
-        // Se o usuário cancelar a seleção ou arquivo for corrompido, aborta sem quebrar a Engine
-        if (!file || !(file instanceof Blob)) {
-            return;
-        }
+        if (!file) return;
 
         const r = new FileReader(); 
         r.onload = () => { 
@@ -184,7 +177,7 @@ window.App = {
                     ThreeEngine.setBackgroundImage(AppState.imagemFundoURL);
                     if (txt) txt.innerText = 'Desativar Fundo Real'; 
                     SceneBuilder.rebuildScene();
-                    UIController.toast("Fundo ativado em 360º!", "success"); 
+                    UIController.toast("Fundo ativado. Ambiente Fotorrealista pronto!", "success"); 
                 } else {
                     const fc = document.getElementById('fotoCliente');
                     if (fc) fc.click(); 
