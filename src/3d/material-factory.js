@@ -4,8 +4,6 @@
  * Evolução: Uso de MeshPhysicalMaterial para simular verniz automotivo (clearcoat) no MDF Brilho e Índice de Refração (IOR) em vidros.
  */
 
-import * as THREE from 'three';
-
 export const MatDefs = {
     // MDF Fosco / Texturizado
     'amadeirado_padrao': { color: 0x8B5A2B, roughness: 0.8, metalness: 0.0, label: "Amadeirado Padrão", mult: 1.0 },
@@ -73,7 +71,7 @@ export const MaterialFactory = {
 
     getRealMaterial: (key) => {
         let def = MatDefs[key] || MatDefs.amadeirado_padrao;
-        // Evolução: Tudo é PhysicalMaterial para reagir brutalmente ao HDRI da foto.
+        // Tudo é PhysicalMaterial para reagir brutalmente ao HDRI da foto.
         return new THREE.MeshPhysicalMaterial(def);
     },
 
