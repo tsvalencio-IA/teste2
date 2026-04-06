@@ -15,7 +15,6 @@ export const ThreeEngine = {
     raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2(), pDown: {x:0,y:0}, 
     dragObj: null, pressTimer: null, isLongPress: false, downTime: 0, isDown: false,
     
-    // Novo: Plano 3D para renderização fotográfica real (Substitui o background de CSS)
     bgPlane: null,
 
     init: () => {
@@ -24,14 +23,13 @@ export const ThreeEngine = {
         
         ThreeEngine.scene = new THREE.Scene();
         
-        // Iluminação PBR Base
         ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.9)); 
         const dl = new THREE.DirectionalLight(0xffffff, 1.2); 
         dl.position.set(10, 20, 10); 
         dl.castShadow = true; 
         dl.shadow.mapSize.width = 2048; 
         dl.shadow.mapSize.height = 2048; 
-        dl.shadow.bias = -0.0005; // Ajuste fino para evitar "acne" nas sombras PBR
+        dl.shadow.bias = -0.0005; 
         ThreeEngine.scene.add(dl);
         
         const dl2 = new THREE.DirectionalLight(0xddeeff, 0.4); 
@@ -55,9 +53,8 @@ export const ThreeEngine = {
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
         ThreeEngine.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
-        ThreeEngine.renderer.toneMappingExposure = 1.1; // Exposição realista de câmera
+        ThreeEngine.renderer.toneMappingExposure = 1.1; 
         
-        // EVOLUÇÃO: Reflexos HDRI Fotorrealistas Reais em vez de RoomEnvironment genérico
         const textureLoader = new THREE.TextureLoader();
         textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/2294472375_24a3b8ef46_o.jpg', (texture) => {
             texture.mapping = THREE.EquirectangularReflectionMapping;
@@ -65,12 +62,11 @@ export const ThreeEngine = {
             ThreeEngine.scene.environment = texture;
         });
 
-        // Configuração do Plano 3D de Fundo (Integração Imagem Real)
         ThreeEngine.bgPlane = new THREE.Mesh(
             new THREE.PlaneGeometry(1, 1),
             new THREE.MeshBasicMaterial({ depthWrite: false, depthTest: false, toneMapped: false })
         );
-        ThreeEngine.bgPlane.renderOrder = -999; // Sempre renderizado atrás de tudo
+        ThreeEngine.bgPlane.renderOrder = -999; 
         ThreeEngine.camera.add(ThreeEngine.bgPlane);
         ThreeEngine.scene.add(ThreeEngine.camera);
         ThreeEngine.bgPlane.visible = false;
@@ -105,7 +101,6 @@ export const ThreeEngine = {
         ThreeEngine.animate();
     },
 
-    // Novo: Constrói a foto 3D perfeitamente alinhada na câmera
     setBackgroundImage: (base64OrUrl) => {
         if (!base64OrUrl) {
             ThreeEngine.bgPlane.visible = false;
@@ -120,13 +115,12 @@ export const ThreeEngine = {
         });
     },
 
-    // Novo: Matemátca de frustum para "background-size: cover" no plano 3D
     resizeBackground: () => {
         if (!ThreeEngine.bgPlane || !ThreeEngine.bgPlane.material.map || !ThreeEngine.bgPlane.visible) return;
         
         const aspect = window.innerWidth / window.innerHeight;
         const texAspect = ThreeEngine.bgPlane.material.map.image.width / ThreeEngine.bgPlane.material.map.image.height;
-        const distance = 100; // Distância virtual
+        const distance = 100; 
         
         ThreeEngine.bgPlane.position.z = -distance;
         
@@ -384,7 +378,6 @@ export const ThreeEngine = {
     animate: () => {
         requestAnimationFrame(ThreeEngine.animate);
         
-        // EVOLUÇÃO: Cinemática suavizada (peso de marcenaria real). Velocidade alterada de 0.15 para 0.08
         for (let i = AppState.animacoesAtivas.length - 1; i >= 0; i--) {
             const a = AppState.animacoesAtivas[i]; 
             const obj = a.obj; 
