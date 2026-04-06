@@ -4,8 +4,6 @@
  * Evolução: Parâmetros físicos rígidos para ACESFilmicToneMapping e reflexos HDRI.
  */
 
-import * as THREE from 'three';
-
 export const MatDefs = {
     'amadeirado_padrao': { color: 0x8B5A2B, roughness: 0.65, metalness: 0.05, label: "Amadeirado Padrão", mult: 1.0 },
     'amadeirado_claro': { color: 0xD2B48C, roughness: 0.6, metalness: 0.05, label: "MDF Madeira Clara", mult: 1.2 }, 
@@ -63,7 +61,6 @@ export const MaterialFactory = {
     getRealMaterial: (key) => {
         let def = MatDefs[key] || MatDefs.amadeirado_padrao;
         
-        // Os vidros e acrílicos precisam de MeshPhysicalMaterial para simular volume, espessura e índice de refração (IOR) na luz HDRI
         if (key === 'vidro_incolor' || key === 'vidro_fume' || key === 'vidro_bronze' || key === 'vidro_reflecta') {
             return new THREE.MeshPhysicalMaterial(def);
         }
