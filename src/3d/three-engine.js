@@ -1,9 +1,10 @@
 /**
  * src/3d/three-engine.js
- * Núcleo do WebGLRenderer, controles e lógica completa de interação física/AR.
- * EVOLUÇÃO ABSOLUTA: Fundo 360º (Skybox) Fotorrealista, Interação Touch Corrigida e Sem Erro de Módulo.
+ * Núcleo do WebGLRenderer, controles e lógica de interação AR.
+ * CORREÇÃO PERICIAL: Mapeamento "Cover" para Fotos 2D (Fim da imagem distorcida) e PBR Real.
  */
 
+import * as THREE from 'three';
 import { AppState } from '../core/app-state.js';
 import { StorageManager } from '../core/storage-manager.js';
 import { PostProcessing } from './post-processing.js';
@@ -16,7 +17,7 @@ export const ThreeEngine = {
     dragObj: null, pressTimer: null, isLongPress: false, downTime: 0, isDown: false,
     
     evCache: [], prevDiff: -1, gestureMode: 'none', dragStartPoint: null,
-    pmremGenerator: null, defaultEnvMap: null,
+    pmremGenerator: null, defaultEnvMap: null, bgTexture: null,
 
     init: () => {
         const c = document.getElementById('canvas-container'); 
@@ -39,14 +40,12 @@ export const ThreeEngine = {
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
         
-        // Motor PBR Sênior
         ThreeEngine.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
         ThreeEngine.renderer.toneMappingExposure = 1.0; 
         
         ThreeEngine.pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
         ThreeEngine.pmremGenerator.compileEquirectangularShader();
         
-        // SALVAÇÃO DO FOTORREALISMO: Luz de Estúdio Perfeita sempre ativa até a foto chegar
         ThreeEngine.defaultEnvMap = ThreeEngine.pmremGenerator.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
         ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap;
 
@@ -77,33 +76,54 @@ export const ThreeEngine = {
                 ThreeEngine.camera.updateProjectionMatrix(); 
                 ThreeEngine.renderer.setSize(c.clientWidth, c.clientHeight); 
                 PostProcessing.resize(c.clientWidth, c.clientHeight);
+                ThreeEngine.updateBackgroundCover();
             }
         });
         
         ThreeEngine.animate();
     },
 
+    // MOTOR MATEMÁTICO DE ENCAIXE DE FOTO (Substitui o Estiramento Bizarro)
+    updateBackgroundCover: () => {
+        if (!ThreeEngine.bgTexture || !ThreeEngine.scene.background) return;
+        const c = document.getElementById('canvas-container');
+        if(!c) return;
+        
+        const canvasAspect = c.clientWidth / c.clientHeight;
+        const imageAspect = ThreeEngine.bgTexture.image.width / ThreeEngine.bgTexture.image.height;
+        
+        // Garante que é uma textura plana (como CSS Cover)
+        ThreeEngine.bgTexture.mapping = THREE.UVMapping;
+        ThreeEngine.bgTexture.center.set(0.5, 0.5); // Ponto de escala no centro
+        
+        if (canvasAspect > imageAspect) {
+            ThreeEngine.bgTexture.repeat.set(1, imageAspect / canvasAspect);
+        } else {
+            ThreeEngine.bgTexture.repeat.set(canvasAspect / imageAspect, 1);
+        }
+    },
+
     setBackgroundImage: (base64OrUrl) => {
         if (!base64OrUrl) {
             ThreeEngine.scene.background = null;
-            ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap; // Volta pro fotorrealismo puro
+            ThreeEngine.bgTexture = null;
+            ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap;
             return;
         }
         
-        // A MÁGICA 360 GRAUS DE VERDADE ACONTECE AQUI
         new THREE.TextureLoader().load(base64OrUrl, (tex) => {
             tex.encoding = THREE.sRGBEncoding;
             
-            // Força a imagem a envolver toda a cena 3D criando um Domo Skybox
-            tex.mapping = THREE.EquirectangularReflectionMapping;
-            
-            // Fundo interativo que gira 360º com a câmera 
+            // Define o fundo com proporção física perfeita
+            ThreeEngine.bgTexture = tex;
             ThreeEngine.scene.background = tex;
+            ThreeEngine.updateBackgroundCover();
             
-            // Usa os pixels da foto real para criar reflexos e iluminação PBR nos móveis
+            // FOTORREALISMO: Extrai as luzes da foto do cliente para brilhar nos móveis
             if (ThreeEngine.pmremGenerator) {
-                const envMap = ThreeEngine.pmremGenerator.fromEquirectangular(tex).texture;
-                ThreeEngine.scene.environment = envMap;
+                const envTex = tex.clone();
+                envTex.mapping = THREE.EquirectangularReflectionMapping;
+                ThreeEngine.scene.environment = ThreeEngine.pmremGenerator.fromEquirectangular(envTex).texture;
             }
         });
     },
@@ -118,7 +138,6 @@ export const ThreeEngine = {
     },
 
     onPtrDown: (e) => {
-        // UX Inteligente: Toque na tela fecha os menus HTML no celular
         if (window.App && window.App.ui) window.App.ui.fecharHUDs();
 
         ThreeEngine.evCache.push(e);
@@ -129,7 +148,6 @@ export const ThreeEngine = {
         ThreeEngine.downTime = Date.now();
         ThreeEngine.gestureMode = 'none';
 
-        // Gesto de 2 Dedos (Pinch Zoom)
         if (ThreeEngine.evCache.length === 2) {
             ThreeEngine.controls.enabled = false;
             clearTimeout(ThreeEngine.pressTimer);
@@ -144,7 +162,6 @@ export const ThreeEngine = {
         ThreeEngine.isLongPress = false; 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
         
-        // Arrasto do Projeto AR (Caixa Azul) com 1 dedo
         if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
             ThreeEngine.controls.enabled = false; 
             ThreeEngine.gestureMode = 'arrasto_projeto';
@@ -164,7 +181,6 @@ export const ThreeEngine = {
             if (obj && obj.userData.isRootModule) {
                 if(AppState.tool === 'orbit' && window.App) window.App.modules.select(obj.userData.id);
                 
-                // Mover Peça Específica
                 if (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca')) { 
                     ThreeEngine.controls.enabled = false; 
                     ThreeEngine.dragPlane.constant = -obj.position.y;
@@ -183,7 +199,6 @@ export const ThreeEngine = {
                     ind.style.top = (e.clientY - 40) + 'px';
                 }
                 
-                // LongPress para abrir Engenharia da Peça
                 ThreeEngine.pressTimer = setTimeout(() => { 
                     if(ind) ind.style.display = 'none'; 
                     if (ThreeEngine.isDown && ThreeEngine.gestureMode !== 'arrasto_peca') { 
@@ -208,7 +223,6 @@ export const ThreeEngine = {
             }
         }
 
-        // Execução do Pinch Zoom no AR
         if (ThreeEngine.gestureMode === 'pinch' && ThreeEngine.evCache.length === 2 && AppState.arActive && AppState.modoInteracao === 'projeto') {
             const curDiff = Math.hypot(ThreeEngine.evCache[0].clientX - ThreeEngine.evCache[1].clientX, ThreeEngine.evCache[0].clientY - ThreeEngine.evCache[1].clientY);
 
@@ -226,7 +240,6 @@ export const ThreeEngine = {
             return;
         }
 
-        // Aborta LongPress se o dedo se mexer
         if (ThreeEngine.evCache.length === 1 && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) > 15) { 
             clearTimeout(ThreeEngine.pressTimer); 
             ThreeEngine.isLongPress = false; 
@@ -234,7 +247,6 @@ export const ThreeEngine = {
             if(ind) ind.style.display = 'none'; 
         }
 
-        // Arrasto com 1 dedo para Rotacionar Projeto ou subir/descer
         if (ThreeEngine.gestureMode === 'arrasto_projeto' && AppState.arActive && AppState.modoInteracao === 'projeto' && ThreeEngine.dragStartPoint) {
             const deltaX = e.clientX - ThreeEngine.dragStartPoint.x;
             const deltaY = e.clientY - ThreeEngine.dragStartPoint.y;
@@ -256,7 +268,6 @@ export const ThreeEngine = {
             return;
         }
 
-        // Arrasto de Peça com Snapping Magnético Físico
         if (ThreeEngine.gestureMode === 'arrasto_peca' && ThreeEngine.dragObj && (AppState.tool === 'move' || AppState.arActive)) {
             ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
             const modData = AppState.modules.find(m => m.id === ThreeEngine.dragObj.obj.userData.id); 
