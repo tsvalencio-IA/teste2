@@ -1,9 +1,10 @@
 /**
  * src/3d/three-engine.js
  * Núcleo do WebGLRenderer, controles e lógica completa de interação física/AR.
- * EVOLUÇÃO ABSOLUTA: Fundo 360º (Skybox) Fotorrealista, Interação Touch Corrigida e Erradicação de Dispose.
+ * GARANTIA DE FOTORREALISMO: RoomEnvironment fixo e Textura 360 segura.
  */
 
+import * as THREE from 'three';
 import { AppState } from '../core/app-state.js';
 import { StorageManager } from '../core/storage-manager.js';
 import { PostProcessing } from './post-processing.js';
@@ -16,35 +17,21 @@ export const ThreeEngine = {
     dragObj: null, pressTimer: null, isLongPress: false, downTime: 0, isDown: false,
     
     evCache: [], prevDiff: -1, gestureMode: 'none', dragStartPoint: null,
-    pmremGenerator: null,
+    pmremGenerator: null, defaultEnvMap: null,
 
     init: () => {
         const c = document.getElementById('canvas-container'); 
         const cv = document.getElementById('cad-canvas');
-        
-        // Se a DIV do canvas não for achada, aborta e avisa (Trava de segurança)
         if (!c || !cv) return;
 
         ThreeEngine.scene = new THREE.Scene();
-        
-        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.4)); 
-        const dl = new THREE.DirectionalLight(0xffffff, 0.8); 
-        dl.position.set(5, 10, 5); 
-        dl.castShadow = true; 
-        dl.shadow.mapSize.width = 2048; 
-        dl.shadow.mapSize.height = 2048; 
-        dl.shadow.bias = -0.0005; 
-        ThreeEngine.scene.add(dl);
         
         ThreeEngine.camera = new THREE.PerspectiveCamera(45, c.clientWidth / c.clientHeight, 0.1, 1000); 
         ThreeEngine.camera.position.set(4, 4, 6);
         
         ThreeEngine.renderer = new THREE.WebGLRenderer({ 
-            canvas: cv, 
-            antialias: true, 
-            alpha: true, 
-            preserveDrawingBuffer: true, 
-            powerPreference: "high-performance" 
+            canvas: cv, antialias: true, alpha: true, 
+            preserveDrawingBuffer: true, powerPreference: "high-performance" 
         }); 
         ThreeEngine.renderer.setClearColor(0x1a1a1a, 1); 
         ThreeEngine.renderer.setSize(c.clientWidth, c.clientHeight); 
@@ -53,13 +40,16 @@ export const ThreeEngine = {
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
         
-        // PBR Fotorrealista puro (Sem plástico)
+        // Motor PBR Sênior
         ThreeEngine.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
         ThreeEngine.renderer.toneMappingExposure = 1.0; 
         
-        // Inicializa o gerador de reflexos de ambiente da placa de vídeo
         ThreeEngine.pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
         ThreeEngine.pmremGenerator.compileEquirectangularShader();
+        
+        // SALVAÇÃO DO FOTORREALISMO: Luz de Estúdio Perfeita sempre ativa até a foto chegar
+        ThreeEngine.defaultEnvMap = ThreeEngine.pmremGenerator.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+        ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap;
 
         PostProcessing.init(ThreeEngine.renderer, ThreeEngine.scene, ThreeEngine.camera, c.clientWidth, c.clientHeight);
 
@@ -77,7 +67,7 @@ export const ThreeEngine = {
         cv.addEventListener('pointercancel', ThreeEngine.onPtrUp, { capture: true });
         cv.addEventListener('pointerout', ThreeEngine.onPtrUp, { capture: true });
 
-        const stopTouch = (e) => { if (ThreeEngine.dragObj) e.stopImmediatePropagation(); };
+        const stopTouch = (e) => { e.stopImmediatePropagation(); };
         cv.addEventListener('touchstart', stopTouch, { capture: true, passive: false }); 
         cv.addEventListener('touchmove', stopTouch, { capture: true, passive: false }); 
         cv.addEventListener('touchend', stopTouch, { capture: true, passive: false });
@@ -97,27 +87,19 @@ export const ThreeEngine = {
     setBackgroundImage: (base64OrUrl) => {
         if (!base64OrUrl) {
             ThreeEngine.scene.background = null;
-            ThreeEngine.scene.environment = null;
+            ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap; // Volta pro fotorrealismo puro
             return;
         }
         
-        // A MÁGICA 360 GRAUS DE VERDADE
         new THREE.TextureLoader().load(base64OrUrl, (tex) => {
             tex.encoding = THREE.sRGBEncoding;
-            
-            // Força a imagem a envolver toda a cena 3D (Skybox 360)
             tex.mapping = THREE.EquirectangularReflectionMapping;
-            
-            // Fundo interativo que gira com a câmera e os dedos
             ThreeEngine.scene.background = tex;
             
-            // Usa os pixels da foto para criar reflexos reais nos vidros e vernizes
             if (ThreeEngine.pmremGenerator) {
                 const envMap = ThreeEngine.pmremGenerator.fromEquirectangular(tex).texture;
                 ThreeEngine.scene.environment = envMap;
             }
-            
-            // NUNCA colocar tex.dispose() aqui, caso contrário a tela fica preta no WebGL
         });
     },
 
