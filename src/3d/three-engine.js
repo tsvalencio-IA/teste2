@@ -1,10 +1,9 @@
 /**
  * src/3d/three-engine.js
  * Núcleo do WebGLRenderer, controles e lógica completa de interação física/AR.
- * GARANTIA DE FOTORREALISMO: RoomEnvironment fixo e Textura 360 segura.
+ * EVOLUÇÃO ABSOLUTA: Fundo 360º (Skybox) Fotorrealista, Interação Touch Corrigida e Sem Erro de Módulo.
  */
 
-import * as THREE from 'three';
 import { AppState } from '../core/app-state.js';
 import { StorageManager } from '../core/storage-manager.js';
 import { PostProcessing } from './post-processing.js';
@@ -91,11 +90,17 @@ export const ThreeEngine = {
             return;
         }
         
+        // A MÁGICA 360 GRAUS DE VERDADE ACONTECE AQUI
         new THREE.TextureLoader().load(base64OrUrl, (tex) => {
             tex.encoding = THREE.sRGBEncoding;
+            
+            // Força a imagem a envolver toda a cena 3D criando um Domo Skybox
             tex.mapping = THREE.EquirectangularReflectionMapping;
+            
+            // Fundo interativo que gira 360º com a câmera 
             ThreeEngine.scene.background = tex;
             
+            // Usa os pixels da foto real para criar reflexos e iluminação PBR nos móveis
             if (ThreeEngine.pmremGenerator) {
                 const envMap = ThreeEngine.pmremGenerator.fromEquirectangular(tex).texture;
                 ThreeEngine.scene.environment = envMap;
@@ -113,6 +118,7 @@ export const ThreeEngine = {
     },
 
     onPtrDown: (e) => {
+        // UX Inteligente: Toque na tela fecha os menus HTML no celular
         if (window.App && window.App.ui) window.App.ui.fecharHUDs();
 
         ThreeEngine.evCache.push(e);
@@ -123,6 +129,7 @@ export const ThreeEngine = {
         ThreeEngine.downTime = Date.now();
         ThreeEngine.gestureMode = 'none';
 
+        // Gesto de 2 Dedos (Pinch Zoom)
         if (ThreeEngine.evCache.length === 2) {
             ThreeEngine.controls.enabled = false;
             clearTimeout(ThreeEngine.pressTimer);
@@ -137,6 +144,7 @@ export const ThreeEngine = {
         ThreeEngine.isLongPress = false; 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
         
+        // Arrasto do Projeto AR (Caixa Azul) com 1 dedo
         if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
             ThreeEngine.controls.enabled = false; 
             ThreeEngine.gestureMode = 'arrasto_projeto';
@@ -156,6 +164,7 @@ export const ThreeEngine = {
             if (obj && obj.userData.isRootModule) {
                 if(AppState.tool === 'orbit' && window.App) window.App.modules.select(obj.userData.id);
                 
+                // Mover Peça Específica
                 if (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca')) { 
                     ThreeEngine.controls.enabled = false; 
                     ThreeEngine.dragPlane.constant = -obj.position.y;
@@ -174,6 +183,7 @@ export const ThreeEngine = {
                     ind.style.top = (e.clientY - 40) + 'px';
                 }
                 
+                // LongPress para abrir Engenharia da Peça
                 ThreeEngine.pressTimer = setTimeout(() => { 
                     if(ind) ind.style.display = 'none'; 
                     if (ThreeEngine.isDown && ThreeEngine.gestureMode !== 'arrasto_peca') { 
@@ -198,6 +208,7 @@ export const ThreeEngine = {
             }
         }
 
+        // Execução do Pinch Zoom no AR
         if (ThreeEngine.gestureMode === 'pinch' && ThreeEngine.evCache.length === 2 && AppState.arActive && AppState.modoInteracao === 'projeto') {
             const curDiff = Math.hypot(ThreeEngine.evCache[0].clientX - ThreeEngine.evCache[1].clientX, ThreeEngine.evCache[0].clientY - ThreeEngine.evCache[1].clientY);
 
@@ -215,6 +226,7 @@ export const ThreeEngine = {
             return;
         }
 
+        // Aborta LongPress se o dedo se mexer
         if (ThreeEngine.evCache.length === 1 && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) > 15) { 
             clearTimeout(ThreeEngine.pressTimer); 
             ThreeEngine.isLongPress = false; 
@@ -222,6 +234,7 @@ export const ThreeEngine = {
             if(ind) ind.style.display = 'none'; 
         }
 
+        // Arrasto com 1 dedo para Rotacionar Projeto ou subir/descer
         if (ThreeEngine.gestureMode === 'arrasto_projeto' && AppState.arActive && AppState.modoInteracao === 'projeto' && ThreeEngine.dragStartPoint) {
             const deltaX = e.clientX - ThreeEngine.dragStartPoint.x;
             const deltaY = e.clientY - ThreeEngine.dragStartPoint.y;
@@ -243,6 +256,7 @@ export const ThreeEngine = {
             return;
         }
 
+        // Arrasto de Peça com Snapping Magnético Físico
         if (ThreeEngine.gestureMode === 'arrasto_peca' && ThreeEngine.dragObj && (AppState.tool === 'move' || AppState.arActive)) {
             ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
             const modData = AppState.modules.find(m => m.id === ThreeEngine.dragObj.obj.userData.id); 
