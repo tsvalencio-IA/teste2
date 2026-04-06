@@ -1,7 +1,7 @@
 /**
  * src/3d/three-engine.js
- * Núcleo do WebGLRenderer.
- * CORREÇÃO: Iluminação de Shopping (SpotLights) e Fotorrealismo. Sem erros de módulo.
+ * Núcleo do WebGLRenderer, controles e lógica de interação.
+ * EVOLUÇÃO ABSOLUTA: Iluminação Varejo (Spotlights), Navegação Humana e Interação Fotorrealista.
  */
 
 import { AppState } from '../core/app-state.js';
@@ -25,29 +25,51 @@ export const ThreeEngine = {
 
         ThreeEngine.scene = new THREE.Scene();
         
-        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.6)); 
+        // 1. ILUMINAÇÃO DE SHOPPING (RETAIL LIGHTING)
+        // Luz ambiente global muito suave para não matar as sombras
+        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.4)); 
         
-        const createSpotlight = (px, pz) => {
-            const spot = new THREE.SpotLight(0xfff5e6, 2.5);
-            spot.position.set(px, 4, pz); 
+        // Hemisphere Light para simular o rebatimento da luz do teto e do piso
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        hemiLight.position.set(0, 10, 0);
+        ThreeEngine.scene.add(hemiLight);
+
+        // Spotlights (Trilho Eletrificado) focado nos móveis
+        const addSpotlight = (x, y, z, intensity) => {
+            const spot = new THREE.SpotLight(0xfffaed, intensity); // Luz levemente quente
+            spot.position.set(x, y, z);
             spot.angle = Math.PI / 4;
-            spot.penumbra = 0.5; 
-            spot.decay = 1.5;
-            spot.distance = 15;
+            spot.penumbra = 0.5; // Sombra difusa e realista
+            spot.decay = 2.0;
+            spot.distance = 20;
             spot.castShadow = true;
             spot.shadow.mapSize.width = 2048;
             spot.shadow.mapSize.height = 2048;
             spot.shadow.bias = -0.0001;
-            return spot;
+            ThreeEngine.scene.add(spot);
         };
 
-        ThreeEngine.scene.add(createSpotlight(0, 2));   
-        ThreeEngine.scene.add(createSpotlight(3, 0));    
-        ThreeEngine.scene.add(createSpotlight(-3, 0));   
-        ThreeEngine.scene.add(createSpotlight(0, -3));   
+        addSpotlight(0, 4, 3, 3.0);   // Luz Frontal Principal
+        addSpotlight(4, 4, 0, 1.5);   // Luz Lateral Direita
+        addSpotlight(-4, 4, 0, 1.5);  // Luz Lateral Esquerda
+        addSpotlight(0, 4, -3, 1.5);  // Luz de Fundo (Backlight)
 
+        // Criação de um CHÃO FÍSICO para ancorar a cena (Garante que os móveis não flutuem no escuro)
+        const floorGeo = new THREE.PlaneGeometry(50, 50);
+        const floorMat = new THREE.MeshStandardMaterial({ 
+            color: 0x999999, 
+            roughness: 0.1, // Chão de shopping encerado
+            metalness: 0.1
+        });
+        const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+        floorMesh.rotation.x = -Math.PI / 2;
+        floorMesh.position.y = -0.01;
+        floorMesh.receiveShadow = true;
+        ThreeEngine.scene.add(floorMesh);
+
+        // Câmera posicionada na altura de um humano (1.6m) 
         ThreeEngine.camera = new THREE.PerspectiveCamera(45, c.clientWidth / c.clientHeight, 0.1, 1000); 
-        ThreeEngine.camera.position.set(4, 3, 6); 
+        ThreeEngine.camera.position.set(0, 1.6, 5); 
         
         ThreeEngine.renderer = new THREE.WebGLRenderer({ 
             canvas: cv, antialias: true, alpha: true, 
@@ -62,29 +84,46 @@ export const ThreeEngine = {
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
         
+        // ACESFilmic para lidar com o estouro de luz do Laca Branco sem estourar a tela
         ThreeEngine.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
         ThreeEngine.renderer.toneMappingExposure = 1.1; 
         
+        // Gerador de Reflexos de Ambiente Customizado (Alto Contraste)
         ThreeEngine.pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
         ThreeEngine.pmremGenerator.compileEquirectangularShader();
-        ThreeEngine.defaultEnvMap = ThreeEngine.pmremGenerator.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+        
+        const createStudioEnv = () => {
+            const envScene = new THREE.Scene();
+            envScene.background = new THREE.Color(0x222222);
+            const lightPanel = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshBasicMaterial({color: 0xffffff}));
+            lightPanel.position.set(0, 10, 0);
+            lightPanel.rotation.x = Math.PI / 2;
+            envScene.add(lightPanel);
+            return ThreeEngine.pmremGenerator.fromScene(envScene).texture;
+        };
+
+        ThreeEngine.defaultEnvMap = createStudioEnv();
         ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap;
 
+        // Fundo AR (Plano estático que não bloqueia os cliques)
         ThreeEngine.bgPlane = new THREE.Mesh(
             new THREE.PlaneGeometry(100, 100),
             new THREE.MeshBasicMaterial({ color: 0xffffff, depthWrite: false })
         );
         ThreeEngine.bgPlane.renderOrder = -999; 
-        ThreeEngine.bgPlane.position.set(0, 0, -40); 
-        ThreeEngine.bgPlane.raycast = function() {}; 
+        ThreeEngine.bgPlane.position.set(0, 1.6, -20); 
+        ThreeEngine.bgPlane.raycast = function() {}; // BLINDAGEM MÁXIMA (Ignora cliques)
         ThreeEngine.scene.add(ThreeEngine.bgPlane);
         ThreeEngine.bgPlane.visible = false;
 
         PostProcessing.init(ThreeEngine.renderer, ThreeEngine.scene, ThreeEngine.camera, c.clientWidth, c.clientHeight);
 
+        // 2. NAVEGAÇÃO HUMANA (Fim da sensação de "Mundo Girando")
         ThreeEngine.controls = new THREE.OrbitControls(ThreeEngine.camera, cv); 
         ThreeEngine.controls.enableDamping = true; 
-        ThreeEngine.controls.target.set(0, 0.8, 0); 
+        // Fixamos o target BEM PERTO da câmera. Assim, ao arrastar, você rotaciona a cabeça, e não o mundo.
+        ThreeEngine.controls.target.set(0, 1.6, 4.9); 
+        ThreeEngine.controls.enablePan = false; // Desativa pan para focar no movimento de olhar e andar
         
         ThreeEngine.rootNode = new THREE.Group(); 
         ThreeEngine.scene.add(ThreeEngine.rootNode);
@@ -93,6 +132,11 @@ export const ThreeEngine = {
         cv.addEventListener('pointerdown', ThreeEngine.onPtrDown, { capture: false }); 
         cv.addEventListener('pointermove', ThreeEngine.onPtrMove, { capture: false }); 
         cv.addEventListener('pointerup', ThreeEngine.onPtrUp, { capture: false });
+
+        const stopTouch = (e) => { e.stopImmediatePropagation(); };
+        cv.addEventListener('touchstart', stopTouch, { capture: true, passive: false }); 
+        cv.addEventListener('touchmove', stopTouch, { capture: true, passive: false }); 
+        cv.addEventListener('touchend', stopTouch, { capture: true, passive: false });
 
         window.addEventListener('resize', () => { 
             if(c.clientWidth > 0 && c.clientHeight > 0) {
@@ -113,7 +157,7 @@ export const ThreeEngine = {
         const imgH = ThreeEngine.bgTexture.image.height;
         const aspect = imgW / imgH;
         
-        const planeHeight = 80;
+        const planeHeight = 40;
         const planeWidth = planeHeight * aspect;
         
         ThreeEngine.bgPlane.geometry.dispose();
@@ -137,12 +181,6 @@ export const ThreeEngine = {
             ThreeEngine.bgPlane.visible = true;
             
             ThreeEngine.updateBackgroundCover();
-            
-            if (ThreeEngine.pmremGenerator) {
-                const envTex = tex.clone();
-                envTex.mapping = THREE.EquirectangularReflectionMapping;
-                ThreeEngine.scene.environment = ThreeEngine.pmremGenerator.fromEquirectangular(envTex).texture;
-            }
         });
     },
 
@@ -332,11 +370,8 @@ export const ThreeEngine = {
 
         ThreeEngine.isDown = false; 
         
-        const bEP = document.getElementById('btnExitPrint');
-        const isPrintMode = bEP && bEP.style.display === 'block';
-        if(AppState.tool === 'orbit' && !isPrintMode) {
-            ThreeEngine.controls.enabled = true; 
-        }
+        // Garante que o usuário possa sempre andar e olhar a loja
+        ThreeEngine.controls.enabled = true; 
         
         clearTimeout(ThreeEngine.pressTimer); 
         const ind = document.getElementById('longPressIndicator');
@@ -385,6 +420,7 @@ export const ThreeEngine = {
             } return;
         }
         
+        // 3. INTERAÇÃO TÁTIL: Mesmo com a câmera livre, o toque na gaveta abre a gaveta na hora.
         if (AppState.tool === 'orbit') {
             if (Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
                 const hits = ThreeEngine.raycaster.intersectObjects(ThreeEngine.rootNode.children, true); 
@@ -460,7 +496,14 @@ export const ThreeEngine = {
             }
         }
         
-        if(ThreeEngine.controls.enabled) ThreeEngine.controls.update(); 
+        // Atualiza a navegação humana e mantém o target bem perto da lente
+        if(ThreeEngine.controls.enabled) {
+            ThreeEngine.controls.update(); 
+            const camDir = new THREE.Vector3();
+            ThreeEngine.camera.getWorldDirection(camDir);
+            ThreeEngine.controls.target.copy(ThreeEngine.camera.position).add(camDir.multiplyScalar(0.1));
+        }
+        
         PostProcessing.render(); 
     }
 };
