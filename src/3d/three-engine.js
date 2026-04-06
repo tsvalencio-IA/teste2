@@ -1,7 +1,7 @@
 /**
  * src/3d/three-engine.js
- * Núcleo do WebGLRenderer, controles e lógica de interação AR.
- * CORREÇÃO PERICIAL: Libertação do OrbitControls no Mobile e Criação do "Diorama 360º" para a Imagem.
+ * Núcleo do WebGLRenderer.
+ * CORREÇÃO PERICIAL: Iluminação Física de Loja de Shopping (SpotLights) e Sombras Dramáticas.
  */
 
 import { AppState } from '../core/app-state.js';
@@ -25,51 +25,63 @@ export const ThreeEngine = {
 
         ThreeEngine.scene = new THREE.Scene();
         
-        // Iluminação Forte e Brilhante para reviver as cores do Mercadão
-        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 1.2)); 
-        const dl = new THREE.DirectionalLight(0xffffff, 1.5); 
-        dl.position.set(5, 10, 5); 
-        dl.castShadow = true; 
-        dl.shadow.mapSize.width = 2048; 
-        dl.shadow.mapSize.height = 2048; 
-        dl.shadow.bias = -0.0005; 
-        ThreeEngine.scene.add(dl);
+        // --- ILUMINAÇÃO FOTORREALISTA DE VAREJO (RETAIL LIGHTING) ---
+        // 1. Luz ambiente suave (rebate das paredes)
+        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.6)); 
         
+        // 2. Trilho de Spotlights do Teto (O segredo do Fotorrealismo de Joalheria/Ótica)
+        const createSpotlight = (px, pz) => {
+            const spot = new THREE.SpotLight(0xfff5e6, 2.5); // Luz levemente quente
+            spot.position.set(px, 4, pz); // Altura do teto da loja
+            spot.angle = Math.PI / 4;
+            spot.penumbra = 0.5; // Borda da sombra suave
+            spot.decay = 1.5;
+            spot.distance = 15;
+            spot.castShadow = true;
+            spot.shadow.mapSize.width = 2048;
+            spot.shadow.mapSize.height = 2048;
+            spot.shadow.bias = -0.0001;
+            return spot;
+        };
+
+        ThreeEngine.scene.add(createSpotlight(0, 2));    // Centro/Frente
+        ThreeEngine.scene.add(createSpotlight(3, 0));    // Direita
+        ThreeEngine.scene.add(createSpotlight(-3, 0));   // Esquerda
+        ThreeEngine.scene.add(createSpotlight(0, -3));   // Fundo
+
         ThreeEngine.camera = new THREE.PerspectiveCamera(45, c.clientWidth / c.clientHeight, 0.1, 1000); 
-        ThreeEngine.camera.position.set(4, 4, 6);
+        ThreeEngine.camera.position.set(4, 3, 6); // Câmera na altura dos olhos humana (mais baixo)
         
         ThreeEngine.renderer = new THREE.WebGLRenderer({ 
             canvas: cv, antialias: true, alpha: true, 
             preserveDrawingBuffer: true, powerPreference: "high-performance" 
         }); 
+        
+        // Motor Físico Ligado (Luzes decaem com o quadrado da distância)
+        ThreeEngine.renderer.useLegacyLights = false;
+        
         ThreeEngine.renderer.setClearColor(0x1a1a1a, 1); 
         ThreeEngine.renderer.setSize(c.clientWidth, c.clientHeight); 
         ThreeEngine.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         ThreeEngine.renderer.shadowMap.enabled = true; 
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
-        
-        // Cores vibrantes reais, sem filtro escurecedor de cinema
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
-        ThreeEngine.renderer.toneMapping = THREE.LinearToneMapping; 
-        ThreeEngine.renderer.toneMappingExposure = 1.2; 
+        
+        ThreeEngine.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
+        ThreeEngine.renderer.toneMappingExposure = 1.1; 
         
         ThreeEngine.pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
         ThreeEngine.pmremGenerator.compileEquirectangularShader();
         ThreeEngine.defaultEnvMap = ThreeEngine.pmremGenerator.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
         ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap;
 
-        // O OUTDOOR FOTOGRÁFICO: Um plano gigante no fundo da cena.
-        // Ele gira junto com os móveis quando a câmera orbita, criando o 360º
         ThreeEngine.bgPlane = new THREE.Mesh(
             new THREE.PlaneGeometry(100, 100),
             new THREE.MeshBasicMaterial({ color: 0xffffff, depthWrite: false })
         );
-        ThreeEngine.bgPlane.renderOrder = -999; // Sempre no fundo
-        ThreeEngine.bgPlane.position.set(0, 0, -40); // Posicionado atrás do balcão
-        
-        // BLINDAGEM MÁXIMA: Impede a foto de bloquear os cliques das gavetas
+        ThreeEngine.bgPlane.renderOrder = -999; 
+        ThreeEngine.bgPlane.position.set(0, 0, -40); 
         ThreeEngine.bgPlane.raycast = function() {}; 
-        
         ThreeEngine.scene.add(ThreeEngine.bgPlane);
         ThreeEngine.bgPlane.visible = false;
 
@@ -77,13 +89,12 @@ export const ThreeEngine = {
 
         ThreeEngine.controls = new THREE.OrbitControls(ThreeEngine.camera, cv); 
         ThreeEngine.controls.enableDamping = true; 
-        ThreeEngine.controls.target.set(0, 0.5, 0);
+        ThreeEngine.controls.target.set(0, 0.8, 0); // Foco no centro do móvel, não no pé
         
         ThreeEngine.rootNode = new THREE.Group(); 
         ThreeEngine.scene.add(ThreeEngine.rootNode);
         ThreeEngine.dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         
-        // Tratamento limpo de ponteiros para liberar o OrbitControls no mobile
         cv.addEventListener('pointerdown', ThreeEngine.onPtrDown, { capture: false }); 
         cv.addEventListener('pointermove', ThreeEngine.onPtrMove, { capture: false }); 
         cv.addEventListener('pointerup', ThreeEngine.onPtrUp, { capture: false });
@@ -94,6 +105,7 @@ export const ThreeEngine = {
                 ThreeEngine.camera.updateProjectionMatrix(); 
                 ThreeEngine.renderer.setSize(c.clientWidth, c.clientHeight); 
                 PostProcessing.resize(c.clientWidth, c.clientHeight);
+                ThreeEngine.updateBackgroundCover();
             }
         });
         
@@ -131,7 +143,6 @@ export const ThreeEngine = {
             
             ThreeEngine.updateBackgroundCover();
             
-            // Fotorrealismo: Extrai as luzes para o ambiente
             if (ThreeEngine.pmremGenerator) {
                 const envTex = tex.clone();
                 envTex.mapping = THREE.EquirectangularReflectionMapping;
@@ -160,7 +171,6 @@ export const ThreeEngine = {
         ThreeEngine.downTime = Date.now();
         ThreeEngine.gestureMode = 'none';
 
-        // Lógica Exclusiva para Ajustar Caixa Azul (Projeto)
         if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
             ThreeEngine.controls.enabled = false;
             if (ThreeEngine.evCache.length === 2) {
@@ -173,7 +183,6 @@ export const ThreeEngine = {
             return; 
         }
 
-        // Modo Normal ou Mover Peça
         ThreeEngine.pDown = pos; 
         ThreeEngine.isLongPress = false; 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
@@ -330,8 +339,6 @@ export const ThreeEngine = {
         
         const bEP = document.getElementById('btnExitPrint');
         const isPrintMode = bEP && bEP.style.display === 'block';
-        
-        // Libera o OrbitControls se a ferramenta for orbit (Isso restaura o giro 360 no Mobile)
         if(AppState.tool === 'orbit' && !isPrintMode) {
             ThreeEngine.controls.enabled = true; 
         }
@@ -369,7 +376,6 @@ export const ThreeEngine = {
                         if(!mod.removedParts) mod.removedParts = [];
                         mod.removedParts.push(target.userData.partKey); 
                         if(window.App && window.App.modules) window.App.modules.refreshAll(); 
-                        if(window.App && window.App.ui) window.App.ui.toast(`Peça ocultada: ${target.userData.partKey}`, 'warning');
                     }
                 }
             } return;
@@ -379,11 +385,9 @@ export const ThreeEngine = {
             const hits = ThreeEngine.raycaster.intersectObject(ThreeEngine.floorCollider);
             if (hits.length > 0 && window.App && window.App.modules) { 
                 window.App.modules.add('porta_avulsa', { posX: hits[0].point.x * 1000, posY: hits[0].point.y * 1000, posZ: hits[0].point.z * 1000, largura: 400, altura: 600 }); 
-                if(window.App.ui) window.App.ui.toast("Componente Inserido!"); 
             } return;
         }
         
-        // Abre gavetas e portas garantidamente (a foto não bloqueia mais o raio)
         if (AppState.tool === 'orbit') {
             if (Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
                 const hits = ThreeEngine.raycaster.intersectObjects(ThreeEngine.rootNode.children, true); 
