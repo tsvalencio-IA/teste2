@@ -1,7 +1,7 @@
 /**
  * src/3d/three-engine.js
- * Núcleo do WebGLRenderer, controles e lógica de interação.
- * EVOLUÇÃO ABSOLUTA: Iluminação Varejo (Spotlights), Navegação Humana e Interação Fotorrealista.
+ * Núcleo do WebGLRenderer.
+ * CORREÇÃO DEFINITIVA: Câmera livre no mobile, Iluminação Neutra Pura e Fundo Diorama (Móveis parados).
  */
 
 import { AppState } from '../core/app-state.js';
@@ -10,13 +10,11 @@ import { PostProcessing } from './post-processing.js';
 
 export const ThreeEngine = {
     scene: null, camera: null, renderer: null, controls: null, rootNode: null, 
-    plane: null, roomWireframe: null, dragPlane: null,
-    floorCollider: null, wallBackCollider: null, wallLeftCollider: null, wallRightCollider: null,
+    bgPlane: null, dragPlane: null,
     raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2(), pDown: {x:0,y:0}, 
-    dragObj: null, pressTimer: null, isLongPress: false, downTime: 0, isDown: false,
+    dragObj: null, pressTimer: null, isLongPress: false, isDown: false,
     
-    evCache: [], prevDiff: -1, gestureMode: 'none', dragStartPoint: null,
-    pmremGenerator: null, defaultEnvMap: null, bgTexture: null, bgPlane: null,
+    pmremGenerator: null, defaultEnvMap: null, bgTexture: null,
 
     init: () => {
         const c = document.getElementById('canvas-container'); 
@@ -25,51 +23,19 @@ export const ThreeEngine = {
 
         ThreeEngine.scene = new THREE.Scene();
         
-        // 1. ILUMINAÇÃO DE SHOPPING (RETAIL LIGHTING)
-        // Luz ambiente global muito suave para não matar as sombras
-        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.4)); 
-        
-        // Hemisphere Light para simular o rebatimento da luz do teto e do piso
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
-        hemiLight.position.set(0, 10, 0);
-        ThreeEngine.scene.add(hemiLight);
+        // LUZ NEUTRA BRANCA (Fim do laranja)
+        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.7)); 
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2); 
+        dirLight.position.set(5, 10, 7); 
+        dirLight.castShadow = true; 
+        dirLight.shadow.mapSize.width = 2048; 
+        dirLight.shadow.mapSize.height = 2048; 
+        dirLight.shadow.bias = -0.0001; 
+        ThreeEngine.scene.add(dirLight);
 
-        // Spotlights (Trilho Eletrificado) focado nos móveis
-        const addSpotlight = (x, y, z, intensity) => {
-            const spot = new THREE.SpotLight(0xfffaed, intensity); // Luz levemente quente
-            spot.position.set(x, y, z);
-            spot.angle = Math.PI / 4;
-            spot.penumbra = 0.5; // Sombra difusa e realista
-            spot.decay = 2.0;
-            spot.distance = 20;
-            spot.castShadow = true;
-            spot.shadow.mapSize.width = 2048;
-            spot.shadow.mapSize.height = 2048;
-            spot.shadow.bias = -0.0001;
-            ThreeEngine.scene.add(spot);
-        };
-
-        addSpotlight(0, 4, 3, 3.0);   // Luz Frontal Principal
-        addSpotlight(4, 4, 0, 1.5);   // Luz Lateral Direita
-        addSpotlight(-4, 4, 0, 1.5);  // Luz Lateral Esquerda
-        addSpotlight(0, 4, -3, 1.5);  // Luz de Fundo (Backlight)
-
-        // Criação de um CHÃO FÍSICO para ancorar a cena (Garante que os móveis não flutuem no escuro)
-        const floorGeo = new THREE.PlaneGeometry(50, 50);
-        const floorMat = new THREE.MeshStandardMaterial({ 
-            color: 0x999999, 
-            roughness: 0.1, // Chão de shopping encerado
-            metalness: 0.1
-        });
-        const floorMesh = new THREE.Mesh(floorGeo, floorMat);
-        floorMesh.rotation.x = -Math.PI / 2;
-        floorMesh.position.y = -0.01;
-        floorMesh.receiveShadow = true;
-        ThreeEngine.scene.add(floorMesh);
-
-        // Câmera posicionada na altura de um humano (1.6m) 
+        // Câmera do usuário
         ThreeEngine.camera = new THREE.PerspectiveCamera(45, c.clientWidth / c.clientHeight, 0.1, 1000); 
-        ThreeEngine.camera.position.set(0, 1.6, 5); 
+        ThreeEngine.camera.position.set(0, 1.6, 6); 
         
         ThreeEngine.renderer = new THREE.WebGLRenderer({ 
             canvas: cv, antialias: true, alpha: true, 
@@ -84,59 +50,42 @@ export const ThreeEngine = {
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
         
-        // ACESFilmic para lidar com o estouro de luz do Laca Branco sem estourar a tela
+        // PBR com Exposição Neutra (Garante que o branco seja branco e o vermelho seja vermelho)
         ThreeEngine.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
-        ThreeEngine.renderer.toneMappingExposure = 1.1; 
+        ThreeEngine.renderer.toneMappingExposure = 1.0; 
         
-        // Gerador de Reflexos de Ambiente Customizado (Alto Contraste)
+        // Reflexos Realistas (PBR Environment)
         ThreeEngine.pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
         ThreeEngine.pmremGenerator.compileEquirectangularShader();
-        
-        const createStudioEnv = () => {
-            const envScene = new THREE.Scene();
-            envScene.background = new THREE.Color(0x222222);
-            const lightPanel = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshBasicMaterial({color: 0xffffff}));
-            lightPanel.position.set(0, 10, 0);
-            lightPanel.rotation.x = Math.PI / 2;
-            envScene.add(lightPanel);
-            return ThreeEngine.pmremGenerator.fromScene(envScene).texture;
-        };
-
-        ThreeEngine.defaultEnvMap = createStudioEnv();
+        ThreeEngine.defaultEnvMap = ThreeEngine.pmremGenerator.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
         ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap;
 
-        // Fundo AR (Plano estático que não bloqueia os cliques)
+        // O OUTDOOR DE FUNDO (Diorama)
+        // Posicionado no fundo da sala. A câmera gira e ele fica fixo atrás dos móveis.
         ThreeEngine.bgPlane = new THREE.Mesh(
             new THREE.PlaneGeometry(100, 100),
             new THREE.MeshBasicMaterial({ color: 0xffffff, depthWrite: false })
         );
         ThreeEngine.bgPlane.renderOrder = -999; 
-        ThreeEngine.bgPlane.position.set(0, 1.6, -20); 
-        ThreeEngine.bgPlane.raycast = function() {}; // BLINDAGEM MÁXIMA (Ignora cliques)
+        ThreeEngine.bgPlane.position.set(0, 1.6, -15); // Bem no fundo
         ThreeEngine.scene.add(ThreeEngine.bgPlane);
         ThreeEngine.bgPlane.visible = false;
 
         PostProcessing.init(ThreeEngine.renderer, ThreeEngine.scene, ThreeEngine.camera, c.clientWidth, c.clientHeight);
 
-        // 2. NAVEGAÇÃO HUMANA (Fim da sensação de "Mundo Girando")
+        // NAVEGAÇÃO LIBERADA (ORBIT CONTROLS NATIVO)
         ThreeEngine.controls = new THREE.OrbitControls(ThreeEngine.camera, cv); 
         ThreeEngine.controls.enableDamping = true; 
-        // Fixamos o target BEM PERTO da câmera. Assim, ao arrastar, você rotaciona a cabeça, e não o mundo.
-        ThreeEngine.controls.target.set(0, 1.6, 4.9); 
-        ThreeEngine.controls.enablePan = false; // Desativa pan para focar no movimento de olhar e andar
+        ThreeEngine.controls.target.set(0, 1.0, 0); // Foco no centro da sala
         
         ThreeEngine.rootNode = new THREE.Group(); 
         ThreeEngine.scene.add(ThreeEngine.rootNode);
         ThreeEngine.dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         
-        cv.addEventListener('pointerdown', ThreeEngine.onPtrDown, { capture: false }); 
-        cv.addEventListener('pointermove', ThreeEngine.onPtrMove, { capture: false }); 
-        cv.addEventListener('pointerup', ThreeEngine.onPtrUp, { capture: false });
-
-        const stopTouch = (e) => { e.stopImmediatePropagation(); };
-        cv.addEventListener('touchstart', stopTouch, { capture: true, passive: false }); 
-        cv.addEventListener('touchmove', stopTouch, { capture: true, passive: false }); 
-        cv.addEventListener('touchend', stopTouch, { capture: true, passive: false });
+        // Eventos limpos que não bloqueiam a navegação no celular
+        cv.addEventListener('pointerdown', ThreeEngine.onPtrDown, { passive: false }); 
+        cv.addEventListener('pointermove', ThreeEngine.onPtrMove, { passive: false }); 
+        cv.addEventListener('pointerup', ThreeEngine.onPtrUp, { passive: false });
 
         window.addEventListener('resize', () => { 
             if(c.clientWidth > 0 && c.clientHeight > 0) {
@@ -168,18 +117,15 @@ export const ThreeEngine = {
         if (!base64OrUrl) {
             ThreeEngine.bgPlane.visible = false;
             ThreeEngine.bgTexture = null;
-            ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap;
             return;
         }
         
         new THREE.TextureLoader().load(base64OrUrl, (tex) => {
             tex.encoding = THREE.sRGBEncoding;
             ThreeEngine.bgTexture = tex;
-            
             ThreeEngine.bgPlane.material.map = tex;
             ThreeEngine.bgPlane.material.needsUpdate = true;
             ThreeEngine.bgPlane.visible = true;
-            
             ThreeEngine.updateBackgroundCover();
         });
     },
@@ -196,31 +142,23 @@ export const ThreeEngine = {
     onPtrDown: (e) => {
         if (window.App && window.App.ui) window.App.ui.fecharHUDs();
 
-        ThreeEngine.evCache.push(e);
-        if (ThreeEngine.evCache.length > 2) { ThreeEngine.evCache = []; return; } 
-
         const pos = ThreeEngine.getPtr(e); 
         ThreeEngine.isDown = true; 
-        ThreeEngine.downTime = Date.now();
-        ThreeEngine.gestureMode = 'none';
-
-        if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
-            ThreeEngine.controls.enabled = false;
-            if (ThreeEngine.evCache.length === 2) {
-                ThreeEngine.prevDiff = -1;
-                ThreeEngine.gestureMode = 'pinch';
-            } else {
-                ThreeEngine.gestureMode = 'arrasto_projeto';
-                ThreeEngine.dragStartPoint = {x: e.clientX, y: e.clientY};
-            }
-            return; 
-        }
-
         ThreeEngine.pDown = pos; 
         ThreeEngine.isLongPress = false; 
+
+        // Se estiver movendo o projeto inteiro (Caixa Azul) no AR
+        if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
+            return; // O OrbitControls fará o giro normal se a ferramenta de AR projeto não estiver ativa
+        }
+
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
         
-        const hits = ThreeEngine.raycaster.intersectObjects(ThreeEngine.rootNode.children, true);
+        // Bloqueia a foto do fundo de interceptar cliques
+        const meshes = [];
+        ThreeEngine.rootNode.traverse(child => { if(child.isMesh) meshes.push(child); });
+        const hits = ThreeEngine.raycaster.intersectObjects(meshes, false);
+
         if (hits.length > 0) {
             let target = hits[0].object; 
             if(target.userData.type && target.userData.type.includes('wall')) return;
@@ -233,13 +171,12 @@ export const ThreeEngine = {
                 if(AppState.tool === 'orbit' && window.App) window.App.modules.select(obj.userData.id);
                 
                 if (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca')) { 
-                    ThreeEngine.controls.enabled = false; 
+                    ThreeEngine.controls.enabled = false; // Desativa giro da câmera para poder arrastar o móvel
                     ThreeEngine.dragPlane.constant = -obj.position.y;
                     const hitPoint = new THREE.Vector3(); 
                     ThreeEngine.raycaster.ray.intersectPlane(ThreeEngine.dragPlane, hitPoint);
                     if (hitPoint) { 
                         ThreeEngine.dragObj = { obj: obj, offset: hitPoint.clone().sub(obj.position) }; 
-                        ThreeEngine.gestureMode = 'arrasto_peca';
                     } 
                 }
                 
@@ -252,7 +189,7 @@ export const ThreeEngine = {
                 
                 ThreeEngine.pressTimer = setTimeout(() => { 
                     if(ind) ind.style.display = 'none'; 
-                    if (ThreeEngine.isDown && ThreeEngine.gestureMode !== 'arrasto_peca') { 
+                    if (ThreeEngine.isDown && !ThreeEngine.dragObj) { 
                         ThreeEngine.isLongPress = true; 
                         if(window.App && window.App.ui) window.App.ui.openLiveEditor(obj.userData.id); 
                     } 
@@ -267,59 +204,15 @@ export const ThreeEngine = {
         if (!ThreeEngine.isDown) return; 
         ThreeEngine.getPtr(e);
 
-        for (let i = 0; i < ThreeEngine.evCache.length; i++) {
-            if (e.pointerId === ThreeEngine.evCache[i].pointerId) {
-                ThreeEngine.evCache[i] = e;
-                break;
-            }
-        }
-
-        if (ThreeEngine.gestureMode === 'pinch' && ThreeEngine.evCache.length === 2 && AppState.arActive && AppState.modoInteracao === 'projeto') {
-            const curDiff = Math.hypot(ThreeEngine.evCache[0].clientX - ThreeEngine.evCache[1].clientX, ThreeEngine.evCache[0].clientY - ThreeEngine.evCache[1].clientY);
-
-            if (ThreeEngine.prevDiff > 0) {
-                const scaleFactor = 0.005; 
-                const delta = (curDiff - ThreeEngine.prevDiff) * scaleFactor;
-                let newScale = ThreeEngine.rootNode.scale.x + delta;
-                newScale = Math.max(0.1, Math.min(newScale, 8.0)); 
-                
-                ThreeEngine.rootNode.scale.setScalar(newScale);
-                const elScale = document.getElementById('camScale');
-                if(elScale) elScale.value = newScale; 
-            }
-            ThreeEngine.prevDiff = curDiff;
-            return;
-        }
-
-        if (ThreeEngine.evCache.length === 1 && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) > 15) { 
+        if (Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) > 15) { 
             clearTimeout(ThreeEngine.pressTimer); 
             ThreeEngine.isLongPress = false; 
             const ind = document.getElementById('longPressIndicator');
             if(ind) ind.style.display = 'none'; 
         }
 
-        if (ThreeEngine.gestureMode === 'arrasto_projeto' && AppState.arActive && AppState.modoInteracao === 'projeto' && ThreeEngine.dragStartPoint) {
-            const deltaX = e.clientX - ThreeEngine.dragStartPoint.x;
-            const deltaY = e.clientY - ThreeEngine.dragStartPoint.y;
-            
-            const rotY_Sens = 0.006;
-            const posY_Sens = 0.01;
-
-            const newRotY = Math.max(-Math.PI * 1.5, Math.min(ThreeEngine.rootNode.rotation.y + deltaX * rotY_Sens, Math.PI * 1.5));
-            ThreeEngine.rootNode.rotation.y = newRotY;
-            const elRotY = document.getElementById('camRotY');
-            if(elRotY) elRotY.value = newRotY;
-
-            const newPosY = Math.max(-10, Math.min(ThreeEngine.rootNode.position.y - deltaY * posY_Sens, 10));
-            ThreeEngine.rootNode.position.y = newPosY;
-            const elPosY = document.getElementById('camPosY');
-            if(elPosY) elPosY.value = newPosY;
-            
-            ThreeEngine.dragStartPoint = {x: e.clientX, y: e.clientY}; 
-            return;
-        }
-
-        if (ThreeEngine.gestureMode === 'arrasto_peca' && ThreeEngine.dragObj && (AppState.tool === 'move' || AppState.arActive)) {
+        // Movimentação da Peça com Snapping
+        if (ThreeEngine.dragObj && (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca'))) {
             ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
             const modData = AppState.modules.find(m => m.id === ThreeEngine.dragObj.obj.userData.id); 
             
@@ -359,41 +252,30 @@ export const ThreeEngine = {
     },
 
     onPtrUp: (e) => {
-        for (let i = 0; i < ThreeEngine.evCache.length; i++) {
-            if (ThreeEngine.evCache[i].pointerId === e.pointerId) {
-                ThreeEngine.evCache.splice(i, 1);
-                break;
-            }
-        }
-
-        if (ThreeEngine.evCache.length < 2) { ThreeEngine.prevDiff = -1; }
-
         ThreeEngine.isDown = false; 
         
-        // Garante que o usuário possa sempre andar e olhar a loja
-        ThreeEngine.controls.enabled = true; 
+        const bEP = document.getElementById('btnExitPrint');
+        const isPrintMode = bEP && bEP.style.display === 'block';
+        if(!isPrintMode) {
+            ThreeEngine.controls.enabled = true; // Devolve o controle total de giro e zoom para o usuário
+        }
         
         clearTimeout(ThreeEngine.pressTimer); 
         const ind = document.getElementById('longPressIndicator');
         if(ind) ind.style.display = 'none';
-        
-        ThreeEngine.dragStartPoint = null;
 
         if (ThreeEngine.dragObj) { ThreeEngine.dragObj = null; return; } 
         if (ThreeEngine.isLongPress) { ThreeEngine.isLongPress = false; return; } 
         
-        if(ThreeEngine.gestureMode === 'pinch' || ThreeEngine.gestureMode === 'arrasto_projeto') {
-            ThreeEngine.gestureMode = 'none';
-            StorageManager.save();
-            return;
-        }
-
         StorageManager.save();
 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
 
         if (AppState.tool === 'remove_part' && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
-            const hits = ThreeEngine.raycaster.intersectObjects(ThreeEngine.rootNode.children, true);
+            const meshes = [];
+            ThreeEngine.rootNode.traverse(child => { if(child.isMesh) meshes.push(child); });
+            const hits = ThreeEngine.raycaster.intersectObjects(meshes, false);
+            
             if (hits.length > 0) {
                 let target = hits[0].object; 
                 if(target.userData.type && target.userData.type.includes('wall')) return;
@@ -420,10 +302,13 @@ export const ThreeEngine = {
             } return;
         }
         
-        // 3. INTERAÇÃO TÁTIL: Mesmo com a câmera livre, o toque na gaveta abre a gaveta na hora.
+        // INTERAÇÃO FÍSICA NO TOQUE (Abrir Portas e Gavetas sem falhar)
         if (AppState.tool === 'orbit') {
             if (Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
-                const hits = ThreeEngine.raycaster.intersectObjects(ThreeEngine.rootNode.children, true); 
+                const meshes = [];
+                ThreeEngine.rootNode.traverse(child => { if(child.isMesh) meshes.push(child); });
+                const hits = ThreeEngine.raycaster.intersectObjects(meshes, false);
+                
                 let anim = null;
                 for (let h of hits) { 
                     let curr = h.object; 
@@ -496,14 +381,7 @@ export const ThreeEngine = {
             }
         }
         
-        // Atualiza a navegação humana e mantém o target bem perto da lente
-        if(ThreeEngine.controls.enabled) {
-            ThreeEngine.controls.update(); 
-            const camDir = new THREE.Vector3();
-            ThreeEngine.camera.getWorldDirection(camDir);
-            ThreeEngine.controls.target.copy(ThreeEngine.camera.position).add(camDir.multiplyScalar(0.1));
-        }
-        
+        if(ThreeEngine.controls.enabled) ThreeEngine.controls.update(); 
         PostProcessing.render(); 
     }
 };
