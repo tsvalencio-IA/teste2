@@ -1,12 +1,14 @@
 /**
  * src/3d/scene-builder.js
  * Construtor Paramétrico de Geometria 3D.
- * Contém TODAS as regras de geração de malhas, portas, gavetas e móveis específicos.
+ * CORREÇÃO: Resgate da lógica original com Bug de Clone resolvido e Gavetas Ocas.
  */
 
 import { AppState } from '../core/app-state.js';
 import { ThreeEngine } from './three-engine.js';
 import { MaterialFactory, MatDefs } from './material-factory.js';
+
+const THREE = window.THREE;
 
 export const SceneBuilder = {
     rebuildScene: () => {
@@ -20,7 +22,7 @@ export const SceneBuilder = {
         const rW = AppState.roomWidth / 1000; 
         const rD = AppState.roomDepth / 1000; 
         const rH = 3;
-        const cMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }); // Fica 100% invisível mas colide
+        const cMat = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
         
         ThreeEngine.floorCollider = new THREE.Mesh(new THREE.PlaneGeometry(rW*3, rD*3), cMat); 
         ThreeEngine.floorCollider.rotation.x = -Math.PI/2; 
@@ -68,7 +70,11 @@ export const SceneBuilder = {
             const folga = 0.003; 
             
             const matCorpo = MaterialFactory.getRealMaterial(mod.material);
-            const matFrente = mod.material === 'misto' ? new THREE.MeshStandardMaterial({...MatDefs['amadeirado_padrao'], color: MatDefs['amadeirado_padrao'].frontColor}) : matCorpo;
+            let matFrente = matCorpo;
+            if (mod.material === 'misto') {
+                matFrente = new THREE.MeshPhysicalMaterial({...MatDefs['amadeirado_padrao'], color: MatDefs['amadeirado_padrao'].frontColor, side: THREE.DoubleSide});
+            }
+
             const matVidro = MaterialFactory.getRealMaterial('vidro_incolor');
             const matTampoPedra = MaterialFactory.getRealMaterial('mdf_preto_tx');
             const matRodape = MaterialFactory.getRealMaterial('rodape');
@@ -82,24 +88,21 @@ export const SceneBuilder = {
             const edgeMat = new THREE.LineBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.15, depthTest: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }); 
             edgeMat.raycast = () => {}; 
             
-            const selMat = new THREE.MeshStandardMaterial({...matCorpo, emissive: 0x333333 });
-            const activeMat = (AppState.selectedModule === mod.id) ? selMat : matCorpo;
-            const activeMatFront = (AppState.selectedModule === mod.id) ? selMat : matFrente;
+            // CORREÇÃO DO BUG FATAL: Clonar o material ao invés de usar spread object
+            const selMat = matCorpo.clone();
+            selMat.emissive.setHex(0x333333);
+            const selMatFront = matFrente.clone();
+            selMatFront.emissive.setHex(0x333333);
 
-            // FORÇANDO DOUBLE SIDE AQUI PARA VER DENTRO DOS MÓVEIS
-            if (activeMat && activeMat.side !== undefined) activeMat.side = THREE.DoubleSide;
-            if (activeMatFront && activeMatFront.side !== undefined) activeMatFront.side = THREE.DoubleSide;
-            if (matCorpo && matCorpo.side !== undefined) matCorpo.side = THREE.DoubleSide;
+            const activeMat = (AppState.selectedModule === mod.id) ? selMat : matCorpo;
+            const activeMatFront = (AppState.selectedModule === mod.id) ? selMatFront : matFrente;
 
             const getMat = (partKey, defaultMat) => { 
                 if(mod.materiaisCustomizados?.estrutura?.[partKey]) { 
                     const isSelected = (AppState.selectedModule === mod.id); 
-                    const bDef = MatDefs[mod.materiaisCustomizados.estrutura[partKey]]; 
-                    if(!bDef) return defaultMat; 
-                    const mat = new THREE.MeshStandardMaterial(bDef); 
-                    if(isSelected) mat.emissive.setHex(0x333333); 
-                    mat.side = THREE.DoubleSide; // Garante que customizados também sejam DoubleSide
-                    return mat; 
+                    const matC = MaterialFactory.getRealMaterial(mod.materiaisCustomizados.estrutura[partKey]); 
+                    if(isSelected) matC.emissive.setHex(0x333333); 
+                    return matC; 
                 } 
                 return defaultMat; 
             };
@@ -135,23 +138,6 @@ export const SceneBuilder = {
                 return criarGeo(new THREE.BoxGeometry(gw, gh, gd), px, py, pz, cMat, partKey);
             };
 
-            const drawGlasses = (px, py, pz) => { 
-                const matArmacao = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.1, metalness: 0.9 }); 
-                const matLente = matVidro; 
-                const glGroup = new THREE.Group(); 
-                const aroGeo = new THREE.TorusGeometry(0.025, 0.003, 8, 24); 
-                const lenteGeo = new THREE.CylinderGeometry(0.024, 0.024, 0.002, 24); 
-                const aroE = new THREE.Mesh(aroGeo, matArmacao); aroE.position.set(-0.03, 0, 0); glGroup.add(aroE); 
-                const lenteE = new THREE.Mesh(lenteGeo, matLente); lenteE.rotation.x = Math.PI/2; lenteE.position.set(-0.03, 0, 0); glGroup.add(lenteE); 
-                const aroD = new THREE.Mesh(aroGeo, matArmacao); aroD.position.set(0.03, 0, 0); glGroup.add(aroD); 
-                const lenteD = new THREE.Mesh(lenteGeo, matLente); lenteD.rotation.x = Math.PI/2; lenteD.position.set(0.03, 0, 0); glGroup.add(lenteD); 
-                const ponte = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.02, 8), matArmacao); ponte.rotation.z = Math.PI/2; glGroup.add(ponte); 
-                const hasteGeo = new THREE.CylinderGeometry(0.002, 0.002, 0.06, 8); 
-                const hasteE = new THREE.Mesh(hasteGeo, matArmacao); hasteE.rotation.x = Math.PI/2; hasteE.position.set(-0.055, 0, -0.03); glGroup.add(hasteE); 
-                const hasteD = new THREE.Mesh(hasteGeo, matArmacao); hasteD.rotation.x = Math.PI/2; hasteD.position.set(0.055, 0, -0.03); glGroup.add(hasteD); 
-                glGroup.position.set(px, py + 0.025, pz); glGroup.rotation.x = -0.15; g.add(glGroup); 
-            };
-
             const drawRipado = (bw, bh, px, py, pz, isRotated = false) => { 
                 if (!mod.ripadoFrontal) return; 
                 const qty = Math.floor(bw / 0.035); 
@@ -170,9 +156,6 @@ export const SceneBuilder = {
                 const isOpen = mod.compStates[compKey] || false; 
                 grp.userData = { isAnimatable: true, type: type, isOpen: isOpen, modId: mod.id, compKey: compKey, zDir: zDir, depth: dF, baseZ: pz, travelX: travelX, baseX: px, hinge: isLeft ? 'left' : 'right', partKey: compKey };
                 
-                // Força DoubleSide na frente móvel também
-                if (cMat && cMat.side !== undefined) cMat.side = THREE.DoubleSide;
-
                 const pM = new THREE.Mesh(new THREE.BoxGeometry(wF - folga, hF - folga, esp), cMat); 
                 pM.castShadow = true; 
                 pM.userData.partKey = compKey;
@@ -183,34 +166,23 @@ export const SceneBuilder = {
                 if (isDrawer) { 
                     grp.position.set(px, py, isOpen ? (pz + dF * 0.8 * zDir) : pz); 
                     
-                    // Constrói a gaveta Oca por dentro para segurar os óculos
-                    const gBoxMat = MaterialFactory.getRealMaterial('mdf_branco_tx');
-                    if (gBoxMat && gBoxMat.side !== undefined) gBoxMat.side = THREE.DoubleSide;
-                    const gavBase = new THREE.Mesh(new THREE.BoxGeometry(wF - esp*2, 0.006, dF - esp), gBoxMat);
+                    // CORREÇÃO: CRIA A GAVETA OCA POR DENTRO COM FUNDO E LATERAIS
+                    const gavMat = MaterialFactory.getRealMaterial('mdf_branco_tx');
+                    const gavBase = new THREE.Mesh(new THREE.BoxGeometry(wF - esp*2, 0.006, dF - esp), gavMat);
                     gavBase.position.set(0, -hF/2 + 0.003, -dF/2 + esp/2);
                     grp.add(gavBase);
                     
-                    const gavCostas = new THREE.Mesh(new THREE.BoxGeometry(wF - esp*2, hF - esp, 0.015), gBoxMat);
+                    const gavCostas = new THREE.Mesh(new THREE.BoxGeometry(wF - esp*2, hF - esp, 0.015), gavMat);
                     gavCostas.position.set(0, 0, -dF + esp);
                     grp.add(gavCostas);
 
-                    const gavEsq = new THREE.Mesh(new THREE.BoxGeometry(0.015, hF - esp, dF - esp), gBoxMat);
+                    const gavEsq = new THREE.Mesh(new THREE.BoxGeometry(0.015, hF - esp, dF - esp), gavMat);
                     gavEsq.position.set(-wF/2 + esp, 0, -dF/2 + esp/2);
                     grp.add(gavEsq);
 
-                    const gavDir = new THREE.Mesh(new THREE.BoxGeometry(0.015, hF - esp, dF - esp), gBoxMat);
+                    const gavDir = new THREE.Mesh(new THREE.BoxGeometry(0.015, hF - esp, dF - esp), gavMat);
                     gavDir.position.set(wF/2 - esp, 0, -dF/2 + esp/2);
                     grp.add(gavDir);
-
-                    // Puxador
-                    const pux = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.015, 0.02), new THREE.MeshStandardMaterial({color:0x888, metalness:1})); 
-                    pux.position.set(0, hF/2 - 0.03, 0.015 * zDir); 
-                    pM.add(pux); 
-
-                    // Óculos dentro da gaveta
-                    const glassesGav = SceneBuilder.createGlasses();
-                    glassesGav.position.set(0, -hF/2 + 0.01, -dF/2);
-                    grp.add(glassesGav);
 
                     grp.add(pM); 
                 } else {
@@ -251,10 +223,10 @@ export const SceneBuilder = {
                         const fKey = `porta_frente_${i}`; const bKey = `porta_tras_${i}`;
                         const cPW = mod.medidasCustomizadas?.[fKey]?.w ? (mod.medidasCustomizadas[fKey].w/1000) : pW; 
                         const cPH = mod.medidasCustomizadas?.[fKey]?.h ? (mod.medidasCustomizadas[fKey].h/1000) : actualH;
-                        let matPortaFrente = mod.materiaisCustomizados?.frentes?.[fKey] ? new THREE.MeshStandardMaterial(MatDefs[mod.materiaisCustomizados.frentes[fKey]]) : activeMatFront;
+                        let matPortaFrente = mod.materiaisCustomizados?.frentes?.[fKey] ? MaterialFactory.getRealMaterial(mod.materiaisCustomizados.frentes[fKey]) : activeMatFront;
                         drawInteractiveFronte(parentGroup, false, cPW, cPH, boxD, currentXF + cPW/2, startY + cPH/2, boxZ, matPortaFrente, abertura, isLeft, zDir, tX, fKey); currentXF += cPW;
                         const backZDir = zDir * -1; const backZ = boxZ + (boxD * backZDir);
-                        let matPortaTras = mod.materiaisCustomizados?.frentes?.[bKey] ? new THREE.MeshStandardMaterial(MatDefs[mod.materiaisCustomizados.frentes[bKey]]) : activeMatFront;
+                        let matPortaTras = mod.materiaisCustomizados?.frentes?.[bKey] ? MaterialFactory.getRealMaterial(mod.materiaisCustomizados.frentes[bKey]) : activeMatFront;
                         drawInteractiveFronte(parentGroup, false, cPW, cPH, boxD, currentXB + cPW/2, startY + cPH/2, backZ, matPortaTras, abertura, !isLeft, backZDir, -tX, bKey); currentXB += cPW;
                     } return; 
                 }
@@ -272,7 +244,7 @@ export const SceneBuilder = {
                         const gavKey = `gaveta_${i}`; 
                         const cG_W = mod.medidasCustomizadas?.[gavKey]?.w ? (mod.medidasCustomizadas[gavKey].w/1000) : (fixedW || wG); 
                         const cG_H = mod.medidasCustomizadas?.[gavKey]?.h ? (mod.medidasCustomizadas[gavKey].h/1000) : (fixedH || (hG / gavetas)); 
-                        const matGaveta = mod.materiaisCustomizados?.frentes?.[gavKey] ? new THREE.MeshStandardMaterial(MatDefs[mod.materiaisCustomizados.frentes[gavKey]]) : activeMatFront; 
+                        const matGaveta = mod.materiaisCustomizados?.frentes?.[gavKey] ? MaterialFactory.getRealMaterial(mod.materiaisCustomizados.frentes[gavKey]) : activeMatFront; 
                         const gZFinal = isInternalDrawers ? boxZ - (0.02 * zDir) : boxZ; 
                         drawInteractiveFronte(parentGroup, true, cG_W, cG_H, boxD, sxG + cG_W/2, currentY + cG_H/2, gZFinal, matGaveta, '', false, zDir, 0, gavKey); 
                         currentY += cG_H; 
@@ -289,7 +261,7 @@ export const SceneBuilder = {
                         if (portas === 1) isLeft = (dobrLado === 'esq'); 
                         let tX = (i % 2 === 0) ? cP_W * 0.95 : -cP_W * 0.95; 
                         let doorZReal = boxZ + (abertura === 'correr' ? ((i % 2 === 0 ? 0.01 : 0.035) * zDir) : 0); 
-                        const matPorta = mod.materiaisCustomizados?.frentes?.[portKey] ? new THREE.MeshStandardMaterial(MatDefs[mod.materiaisCustomizados.frentes[portKey]]) : activeMatFront; 
+                        const matPorta = mod.materiaisCustomizados?.frentes?.[portKey] ? MaterialFactory.getRealMaterial(mod.materiaisCustomizados.frentes[portKey]) : activeMatFront; 
                         drawInteractiveFronte(parentGroup, false, cP_W, cP_H, boxD, currentX + cP_W/2, syP + cP_H/2, doorZReal, matPorta, abertura, isLeft, zDir, tX, portKey); 
                         currentX += cP_W; 
                     } 
@@ -317,8 +289,6 @@ export const SceneBuilder = {
                 if(!mod.removedParts.includes("vidro_tampa")) { vidroTop.userData.partKey="vidro_tampa"; g.add(vidroTop); }
                 criarBloco(w, 0.02, 0.02, 0, h, -d/2 + 0.02, matLed, "led_inclinado"); 
                 const pLight = new THREE.PointLight(0xffffff, 0.4, 2); pLight.position.set(0, baseH + inclH, 0); g.add(pLight);
-                const numOculos = Math.floor((w-0.2) / 0.2); 
-                for(let oc=0; oc<numOculos; oc++) { drawGlasses(-w/2 + 0.15 + (oc * 0.2), yCenterVidro + 0.02, 0); }
             }
             else if (mod.tipo === 'expositor_oculos_hexagonal') {
                 const espHex = 0.08; const innerH = h * 0.7; criarBloco(w, innerH, d*0.8, 0, innerH/2, 0, matBranco, "base_hex_branca");
@@ -337,7 +307,6 @@ export const SceneBuilder = {
                     hexMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(hexMesh.geometry), edgeMat)); g.add(hexMesh); 
                 };
                 criarMolduraHexagonal(-w/2 + 0.05, "moldura_esq"); criarMolduraHexagonal(w/2 - 0.05, "moldura_dir");
-                for(let oc=0; oc<4; oc++) { drawGlasses(-w/4 + (oc * 0.2), innerH+0.05, d*0.2); drawGlasses(-w/4 + (oc * 0.2), innerH+0.05, -d*0.2); }
             }
             else if (mod.tipo === 'expositor_oculos_chillibeans') {
                 const tableH = h * 0.45; criarBloco(w, tableH, d, 0, tableH/2, 0, matBranco, "mesa_chilli"); 
@@ -348,14 +317,11 @@ export const SceneBuilder = {
                     criarBloco(w-0.5, 0.015, 0.02, 0, tableH + stepH*(i+1) + 0.01, d/2 - (i*stepD) - 0.02, matVidro, `vd_f_${i}`); 
                     criarBloco(w-0.5, stepH*(i+1), stepD, 0, tableH + (stepH*(i+1))/2, -d/2 + stepD/2 + (i*stepD), matBranco, `st_t_${i}`); 
                     criarBloco(w-0.5, 0.015, 0.02, 0, tableH + stepH*(i+1) + 0.01, -d/2 + (i*stepD) + 0.02, matVidro, `vd_t_${i}`); 
-                    const numOculos = Math.floor((w-0.6) / 0.2);
-                    for(let oc=0; oc<numOculos; oc++) { drawGlasses(-w/2 + 0.35 + (oc * 0.2), tableH + stepH*(i+1), d/2 - stepD/2 - (i*stepD)); drawGlasses(-w/2 + 0.35 + (oc * 0.2), tableH + stepH*(i+1), -d/2 + stepD/2 + (i*stepD)); }
                 }
                 criarBloco(w, 0.25, d+0.05, 0, h - 0.125, 0, matBranco, "portico"); criarBloco(w-0.4, 0.2, 0.02, 0, h - 0.125, d/2 + 0.03, matEspelho, "espelho"); criarBloco(w-0.4, 0.02, d-0.1, 0, h - 0.26, 0, matLed, "luz"); 
             }
             else if (mod.tipo === 'parede_otica') {
                 const fMat = MaterialFactory.getRealMaterial('amadeirado_claro'); 
-                if (fMat && fMat.side !== undefined) fMat.side = THREE.DoubleSide; // Garante o double side
                 criarBloco(w, h, 0.05, 0, h/2, -d/2+0.025, fMat, "fundo_parede");
                 
                 const baseH = h * 0.3; 
@@ -374,8 +340,6 @@ export const SceneBuilder = {
                 for(let i=1; i<=prateleiras; i++) { 
                     const py = baseH + wedgeH + (espacoUtil/(prateleiras+1))*i; 
                     criarBloco(w-0.1, 0.01, d-0.15, 0, py, -0.05, matVidro, `prat_vidro_${i}`); 
-                    const numOculos = Math.floor((w-0.2) / 0.2); 
-                    for(let oc=0; oc<numOculos; oc++) { drawGlasses(-w/2 + 0.15 + (oc * 0.2), py, -0.05); } 
                 }
                 const pLight = new THREE.PointLight(0xffffff, 0.4, 3); pLight.position.set(0, h/2, d/2); g.add(pLight);
             }
@@ -403,8 +367,6 @@ export const SceneBuilder = {
                 for(let i=1; i<=prateleiras; i++) { 
                     const py = baseH + (glassH/(prateleiras+1))*i; 
                     criarBloco(w-0.05, 0.01, d-0.05, 0, py, 0, matVidro, `prat_${i}`); 
-                    const numOculos = Math.floor((w-0.1) / 0.2); 
-                    for(let oc=0; oc<numOculos; oc++) { drawGlasses(-w/2 + 0.1 + (oc * 0.2), py, 0); } 
                 }
                 criarBloco(w-0.02, 0.02, 0.02, 0, baseH + glassH - 0.02, d/2 - 0.02, matLed, "fita"); const pLight = new THREE.PointLight(0xffffff, 0.4, 2); pLight.position.set(0, baseH + glassH/2, 0); g.add(pLight);
             }
@@ -417,8 +379,6 @@ export const SceneBuilder = {
                     criarBloco(w, 0.1, 0.005, 0, curH + 0.05, curZ + stepD/2 - 0.005, matVidro, `acrilico_${i}`, "Acrilico"); 
                     const numBaias = mod.gavetas > 0 ? mod.gavetas : 4; const wBaia = w / numBaias; 
                     for (let b = 1; b < numBaias; b++) { criarBloco(0.005, 0.08, stepD - 0.02, -w/2 + (b*wBaia), curH + 0.04, curZ, matVidro, `divisoria_${i}_${b}`, "Div"); } 
-                    const numOculos = Math.floor((w-0.2) / 0.2); 
-                    for(let oc=0; oc<numOculos; oc++) { drawGlasses(-w/2 + 0.15 + (oc * 0.2), curH, curZ); }
                 }
             }
             else if (mod.tipo === 'porta_avulsa') drawInteractiveFronte(g, false, w, h, d, 0, h/2, 0, activeMatFront, mod.abertura, mod.dobradicaLado === 'esq', 1, w, 'porta_avulsa_0');
@@ -467,17 +427,8 @@ export const SceneBuilder = {
                 if (mod.tampoVidro) criarBloco(w, 0.015, d, 0, h-0.0075, 0, matVidro, "tampo"); 
                 else criarBloco(w, esp*2, d, 0, h-esp, 0, matTeto, "tampo"); 
                 if (mod.formato === 'dobravel') { 
-                    const mGroup = new THREE.Group();
-                    mGroup.position.set(0, h/2, 0);
-                    // Lógica paramétrica de dobrar:
-                    mGroup.userData = { 
-                        isAnimatable: true, type: 'door_hinge', hinge: 'right', modId: mod.id, compKey: 'dobradiça_mesa', 
-                        isOpen: mod.compStates?.['dobradiça_mesa'] || false, zDir: 1
-                    };
-                    const p1 = new THREE.Mesh(new THREE.BoxGeometry(0.03, h, 0.03), matBase); p1.position.set(-w/2+0.1, 0, 0); mGroup.add(p1);
-                    const p2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, h, 0.03), matBase); p2.position.set(w/2-0.1, 0, 0); mGroup.add(p2);
-                    if (mGroup.userData.isOpen) mGroup.rotation.z = Math.PI / 2; // Mesa dobra para o lado
-                    g.add(mGroup);
+                    criarBloco(0.03, h, 0.03, -w/2+0.1, h/2, 0, matBase, "p1"); 
+                    criarBloco(0.03, h, 0.03, w/2-0.1, h/2, 0, matBase, "p2"); 
                 } else if (mod.formato === 'L_esq' || mod.formato === 'L_dir') { 
                     const isEsq = mod.formato === 'L_esq'; const wL = d, lenL = rL - d, pxL = isEsq ? -w/2+wL/2 : w/2-wL/2, pzL = -d/2 - lenL/2; 
                     criarBloco(wL, esp*2, lenL, pxL, h-esp, pzL, mod.tampoVidro ? matVidro : matTeto, "tampo_L"); 
@@ -569,10 +520,7 @@ export const SceneBuilder = {
                 if (mod.prateleiras > 0) { 
                     const epIn = (h-esp*2) / (mod.prateleiras + 1); 
                     for (let i=1; i<=mod.prateleiras; i++) { 
-                        const pratInt = criarBloco(w-esp*2, esp, chassiD-0.02, 0, esp+epIn*i, zC, activeMat, `prat_int_${i}`); 
-                        // Coloca óculos dentro dos armários!
-                        const numOculos = Math.floor((w-0.2) / 0.2);
-                        for(let oc=0; oc<numOculos; oc++) { drawGlasses(-w/2 + 0.15 + (oc * 0.2), esp+epIn*i, zC); }
+                        criarBloco(w-esp*2, esp, chassiD-0.02, 0, esp+epIn*i, zC, activeMat, `prat_int_${i}`); 
                     } 
                 }
                 if (mod.tipo === 'guarda_roupa') { 
