@@ -1,7 +1,7 @@
 /**
  * src/3d/three-engine.js
  * Núcleo do WebGLRenderer.
- * CORREÇÃO DEFINITIVA: Câmera livre no mobile, Iluminação Neutra Pura e Fundo Diorama (Móveis parados).
+ * CORREÇÃO PERICIAL: Mapeamento Linear (Fim do laranja), Luzes Neutras e Fundo Fixo.
  */
 
 import { AppState } from '../core/app-state.js';
@@ -14,6 +14,7 @@ export const ThreeEngine = {
     raycaster: new THREE.Raycaster(), pointer: new THREE.Vector2(), pDown: {x:0,y:0}, 
     dragObj: null, pressTimer: null, isLongPress: false, isDown: false,
     
+    evCache: [], prevDiff: -1, gestureMode: 'none', dragStartPoint: null,
     pmremGenerator: null, defaultEnvMap: null, bgTexture: null,
 
     init: () => {
@@ -23,9 +24,9 @@ export const ThreeEngine = {
 
         ThreeEngine.scene = new THREE.Scene();
         
-        // LUZ NEUTRA BRANCA (Fim do laranja)
-        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.7)); 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2); 
+        // LUZ BRANCA NEUTRA (Nada de laranja)
+        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.9)); 
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); 
         dirLight.position.set(5, 10, 7); 
         dirLight.castShadow = true; 
         dirLight.shadow.mapSize.width = 2048; 
@@ -33,7 +34,6 @@ export const ThreeEngine = {
         dirLight.shadow.bias = -0.0001; 
         ThreeEngine.scene.add(dirLight);
 
-        // Câmera do usuário
         ThreeEngine.camera = new THREE.PerspectiveCamera(45, c.clientWidth / c.clientHeight, 0.1, 1000); 
         ThreeEngine.camera.position.set(0, 1.6, 6); 
         
@@ -50,39 +50,38 @@ export const ThreeEngine = {
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
         
-        // PBR com Exposição Neutra (Garante que o branco seja branco e o vermelho seja vermelho)
-        ThreeEngine.renderer.toneMapping = THREE.ACESFilmicToneMapping; 
+        // CORREÇÃO LETAL: LinearToneMapping não altera a cor original do hexadecimal.
+        ThreeEngine.renderer.toneMapping = THREE.LinearToneMapping; 
         ThreeEngine.renderer.toneMappingExposure = 1.0; 
         
-        // Reflexos Realistas (PBR Environment)
+        // ESTÚDIO DE REFLEXOS 100% BRANCO (Mata a luz amarela do ambiente antigo)
         ThreeEngine.pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
         ThreeEngine.pmremGenerator.compileEquirectangularShader();
-        ThreeEngine.defaultEnvMap = ThreeEngine.pmremGenerator.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+        const envScene = new THREE.Scene();
+        envScene.background = new THREE.Color(0xf0f0f0); 
+        ThreeEngine.defaultEnvMap = ThreeEngine.pmremGenerator.fromScene(envScene).texture;
         ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap;
 
-        // O OUTDOOR DE FUNDO (Diorama)
-        // Posicionado no fundo da sala. A câmera gira e ele fica fixo atrás dos móveis.
+        // O OUTDOOR FOTOGRÁFICO DE FUNDO
         ThreeEngine.bgPlane = new THREE.Mesh(
             new THREE.PlaneGeometry(100, 100),
             new THREE.MeshBasicMaterial({ color: 0xffffff, depthWrite: false })
         );
         ThreeEngine.bgPlane.renderOrder = -999; 
-        ThreeEngine.bgPlane.position.set(0, 1.6, -15); // Bem no fundo
+        ThreeEngine.bgPlane.position.set(0, 1.6, -15); 
         ThreeEngine.scene.add(ThreeEngine.bgPlane);
         ThreeEngine.bgPlane.visible = false;
 
         PostProcessing.init(ThreeEngine.renderer, ThreeEngine.scene, ThreeEngine.camera, c.clientWidth, c.clientHeight);
 
-        // NAVEGAÇÃO LIBERADA (ORBIT CONTROLS NATIVO)
         ThreeEngine.controls = new THREE.OrbitControls(ThreeEngine.camera, cv); 
         ThreeEngine.controls.enableDamping = true; 
-        ThreeEngine.controls.target.set(0, 1.0, 0); // Foco no centro da sala
+        ThreeEngine.controls.target.set(0, 1.0, 0); 
         
         ThreeEngine.rootNode = new THREE.Group(); 
         ThreeEngine.scene.add(ThreeEngine.rootNode);
         ThreeEngine.dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         
-        // Eventos limpos que não bloqueiam a navegação no celular
         cv.addEventListener('pointerdown', ThreeEngine.onPtrDown, { passive: false }); 
         cv.addEventListener('pointermove', ThreeEngine.onPtrMove, { passive: false }); 
         cv.addEventListener('pointerup', ThreeEngine.onPtrUp, { passive: false });
@@ -147,14 +146,12 @@ export const ThreeEngine = {
         ThreeEngine.pDown = pos; 
         ThreeEngine.isLongPress = false; 
 
-        // Se estiver movendo o projeto inteiro (Caixa Azul) no AR
         if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
-            return; // O OrbitControls fará o giro normal se a ferramenta de AR projeto não estiver ativa
+            return; 
         }
 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
         
-        // Bloqueia a foto do fundo de interceptar cliques
         const meshes = [];
         ThreeEngine.rootNode.traverse(child => { if(child.isMesh) meshes.push(child); });
         const hits = ThreeEngine.raycaster.intersectObjects(meshes, false);
@@ -171,7 +168,7 @@ export const ThreeEngine = {
                 if(AppState.tool === 'orbit' && window.App) window.App.modules.select(obj.userData.id);
                 
                 if (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca')) { 
-                    ThreeEngine.controls.enabled = false; // Desativa giro da câmera para poder arrastar o móvel
+                    ThreeEngine.controls.enabled = false; 
                     ThreeEngine.dragPlane.constant = -obj.position.y;
                     const hitPoint = new THREE.Vector3(); 
                     ThreeEngine.raycaster.ray.intersectPlane(ThreeEngine.dragPlane, hitPoint);
@@ -211,7 +208,6 @@ export const ThreeEngine = {
             if(ind) ind.style.display = 'none'; 
         }
 
-        // Movimentação da Peça com Snapping
         if (ThreeEngine.dragObj && (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca'))) {
             ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
             const modData = AppState.modules.find(m => m.id === ThreeEngine.dragObj.obj.userData.id); 
@@ -257,7 +253,7 @@ export const ThreeEngine = {
         const bEP = document.getElementById('btnExitPrint');
         const isPrintMode = bEP && bEP.style.display === 'block';
         if(!isPrintMode) {
-            ThreeEngine.controls.enabled = true; // Devolve o controle total de giro e zoom para o usuário
+            ThreeEngine.controls.enabled = true; 
         }
         
         clearTimeout(ThreeEngine.pressTimer); 
@@ -302,7 +298,6 @@ export const ThreeEngine = {
             } return;
         }
         
-        // INTERAÇÃO FÍSICA NO TOQUE (Abrir Portas e Gavetas sem falhar)
         if (AppState.tool === 'orbit') {
             if (Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) < 15) {
                 const meshes = [];
