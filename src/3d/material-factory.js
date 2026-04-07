@@ -1,8 +1,10 @@
 /**
  * src/3d/material-factory.js
  * Fábrica de materiais fotorrealistas SENIORES (PBR).
- * CORREÇÃO: THREE.DoubleSide ativado para restaurar o interior das caixarias e gavetas.
+ * CORREÇÃO ABSOLUTA: Uso de window.THREE para evitar colapso de módulo. Propriedade DoubleSide ativada.
  */
+
+const THREE = window.THREE;
 
 export const MatDefs = {
     // MDF Madeirados
@@ -24,14 +26,14 @@ export const MatDefs = {
     'mdf_rosa_milkshake': { color: 0xFFB6C1, roughness: 0.8, metalness: 0.0, label: "MDF Rosa Milkshake" },
     'mdf_areia': { color: 0xE8DCC4, roughness: 0.8, metalness: 0.0, label: "MDF Areia" },
     
-    // LACA / ALTO BRILHO (Cores Vivas Mercadão)
+    // LACA / ALTO BRILHO (Cores Vivas Mercadão) - Reflexo Perfeito
     'mdf_branco_diamante': { color: 0xFFFFFF, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.02, label: "MDF Branco Diamante (Brilho)" },
     'mdf_azul_mercadao': { color: 0x1565C0, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.02, label: "MDF Azul Mercadão" },
     'mdf_vermelho_mercadao': { color: 0xCC0000, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.02, label: "MDF Vermelho Mercadão" }, 
     'mdf_vermelho_fini': { color: 0xE3242B, roughness: 0.05, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.05, label: "MDF Vermelho Fini" },
     'misto': { color: 0xFAFAFA, frontColor: 0x8B5A2B, roughness: 0.8, metalness: 0.0, label: "Misto (Branco/Madeira)" },
     
-    // Vidros Arquitetônicos
+    // Vidros Arquitetônicos Reais
     'vidro_incolor': { color: 0xffffff, roughness: 0.0, metalness: 0.1, transmission: 1.0, ior: 1.52, thickness: 0.05, transparent: true, opacity: 1, label: "Vidro Incolor" },
     'vidro_fume': { color: 0x222222, roughness: 0.0, metalness: 0.2, transmission: 0.8, ior: 1.52, thickness: 0.05, transparent: true, opacity: 1, label: "Vidro Fumê" },
     'vidro_bronze': { color: 0x6e4b33, roughness: 0.0, metalness: 0.3, transmission: 0.85, ior: 1.52, thickness: 0.05, transparent: true, opacity: 1, label: "Vidro Bronze" },
@@ -45,7 +47,8 @@ export const MatDefs = {
     'tecido_linho_cinza': { color: 0x888888, roughness: 1.0, metalness: 0.0, label: "Tecido Linho" },
     'tecido_couro_marrom': { color: 0x4A3022, roughness: 0.6, metalness: 0.0, label: "Couro Marrom" },
     
-    'led': { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.0, label: "Fita LED" },
+    // Luzes
+    'led': { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.5, label: "Fita LED" },
     'rodape': { color: 0x111111, roughness: 0.9, metalness: 0.0, label: "Rodapé Preto" }
 };
 
@@ -58,22 +61,21 @@ export const MaterialFactory = {
         ctx.font = 'bold 90px "Montserrat", sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillStyle = textColor; ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-        const tex = new window.THREE.CanvasTexture(canvas); tex.anisotropy = 16; return tex;
+        const tex = new THREE.CanvasTexture(canvas); tex.anisotropy = 16; return tex;
     },
 
     getRealMaterial: (key) => {
         let def = MatDefs[key] || MatDefs.amadeirado_padrao;
-        // A SOLUÇÃO DO ESPAÇO OCO ESTÁ AQUI: side: 2 força o motor a pintar o interior do móvel
-        let props = { ...def, side: window.THREE.DoubleSide };
-        return new window.THREE.MeshPhysicalMaterial(props);
+        // O SEGREDO DO ESPAÇO OCO: side: THREE.DoubleSide obriga a engine a pintar dentro e fora do móvel
+        return new THREE.MeshPhysicalMaterial({ ...def, side: THREE.DoubleSide });
     },
 
     getLogoMercadaoMaterial: () => {
         const tex = MaterialFactory.createLogoTexture("MERCADÃO DOS ÓCULOS", "#CC0000", "#FFFFFF");
-        return new window.THREE.MeshPhysicalMaterial({ 
+        return new THREE.MeshPhysicalMaterial({ 
             map: tex, emissive: 0x330000, emissiveIntensity: 0.5, 
             roughness: 0.05, clearcoat: 1.0, clearcoatRoughness: 0.02,
-            side: window.THREE.DoubleSide
+            side: THREE.DoubleSide
         });
     }
 };
