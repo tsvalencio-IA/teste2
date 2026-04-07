@@ -1,12 +1,14 @@
 /**
  * src/3d/three-engine.js
- * Núcleo do WebGLRenderer.
- * CORREÇÃO PERICIAL: Câmera Primeira Pessoa (Andar na loja), Cores Neutras Reais e Interação Touch Direta.
+ * Núcleo do WebGLRenderer, controles e lógica de interação.
+ * CORREÇÃO PERICIAL: Modo Cliente Primeira Pessoa (FPS) e Fim do Fundo no Print Mode.
  */
 
 import { AppState } from '../core/app-state.js';
 import { StorageManager } from '../core/storage-manager.js';
 import { PostProcessing } from './post-processing.js';
+
+const THREE = window.THREE;
 
 export const ThreeEngine = {
     scene: null, camera: null, renderer: null, controls: null, rootNode: null, 
@@ -16,6 +18,7 @@ export const ThreeEngine = {
     
     evCache: [], prevDiff: -1, gestureMode: 'none', dragStartPoint: null,
     pmremGenerator: null, defaultEnvMap: null, bgTexture: null,
+    
     isFPSMode: false, fpsYaw: 0, fpsPitch: 0,
 
     init: () => {
@@ -25,9 +28,9 @@ export const ThreeEngine = {
 
         ThreeEngine.scene = new THREE.Scene();
         
-        // LUZ NEUTRA (Fim das cores alaranjadas, respeito absoluto ao Hexadecimal)
-        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.9)); 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); 
+        // Luz Neutra Branca
+        ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.7)); 
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.2); 
         dirLight.position.set(5, 10, 7); 
         dirLight.castShadow = true; 
         dirLight.shadow.mapSize.width = 2048; 
@@ -36,7 +39,7 @@ export const ThreeEngine = {
         ThreeEngine.scene.add(dirLight);
 
         ThreeEngine.camera = new THREE.PerspectiveCamera(45, c.clientWidth / c.clientHeight, 0.1, 1000); 
-        ThreeEngine.camera.position.set(0, 1.6, 6); // Altura dos olhos
+        ThreeEngine.camera.position.set(0, 1.6, 6); 
         
         ThreeEngine.renderer = new THREE.WebGLRenderer({ 
             canvas: cv, antialias: true, alpha: true, 
@@ -56,6 +59,8 @@ export const ThreeEngine = {
         
         ThreeEngine.pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
         ThreeEngine.pmremGenerator.compileEquirectangularShader();
+        
+        // Estúdio de Reflexos Neutro
         const envScene = new THREE.Scene();
         envScene.background = new THREE.Color(0xf0f0f0); 
         ThreeEngine.defaultEnvMap = ThreeEngine.pmremGenerator.fromScene(envScene).texture;
@@ -83,6 +88,8 @@ export const ThreeEngine = {
         cv.addEventListener('pointerdown', ThreeEngine.onPtrDown, { passive: false }); 
         cv.addEventListener('pointermove', ThreeEngine.onPtrMove, { passive: false }); 
         cv.addEventListener('pointerup', ThreeEngine.onPtrUp, { passive: false });
+        cv.addEventListener('pointercancel', ThreeEngine.onPtrUp, { passive: false });
+        cv.addEventListener('pointerout', ThreeEngine.onPtrUp, { passive: false });
 
         window.addEventListener('resize', () => { 
             if(c.clientWidth > 0 && c.clientHeight > 0) {
@@ -102,8 +109,10 @@ export const ThreeEngine = {
         const imgW = ThreeEngine.bgTexture.image.width;
         const imgH = ThreeEngine.bgTexture.image.height;
         const aspect = imgW / imgH;
+        
         const planeHeight = 40;
         const planeWidth = planeHeight * aspect;
+        
         ThreeEngine.bgPlane.geometry.dispose();
         ThreeEngine.bgPlane.geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
     },
@@ -114,19 +123,21 @@ export const ThreeEngine = {
             ThreeEngine.bgTexture = null;
             return;
         }
+        
         new THREE.TextureLoader().load(base64OrUrl, (tex) => {
             tex.encoding = THREE.sRGBEncoding;
             ThreeEngine.bgTexture = tex;
             ThreeEngine.bgPlane.material.map = tex;
             ThreeEngine.bgPlane.material.needsUpdate = true;
-            ThreeEngine.bgPlane.visible = true;
+            ThreeEngine.bgPlane.visible = !ThreeEngine.isFPSMode; // Esconde se estiver apresentando
             ThreeEngine.updateBackgroundCover();
         });
     },
 
     getPtr: (e) => {
         const rect = ThreeEngine.renderer.domElement.getBoundingClientRect(); 
-        const cX = e.clientX; const cY = e.clientY;
+        const cX = e.clientX; 
+        const cY = e.clientY;
         ThreeEngine.pointer.x = ((cX - rect.left) / rect.width) * 2 - 1; 
         ThreeEngine.pointer.y = -((cY - rect.top) / rect.height) * 2 + 1; 
         return {x: cX, y: cY};
@@ -143,11 +154,12 @@ export const ThreeEngine = {
         ThreeEngine.pDown = pos; 
         ThreeEngine.isLongPress = false; 
 
-        // NOVO: AÇÃO PARA O MODO PRIMEIRA PESSOA (Andar na Loja)
+        // O SEGREDO DO MODO CLIENTE: O usuário é a câmera. A foto some. O cenário fica estático.
         if (ThreeEngine.isFPSMode) {
+            ThreeEngine.gestureMode = 'fps';
             ThreeEngine.dragStartPoint = {x: e.clientX, y: e.clientY};
             
-            // Permite clicar em gavetas enquanto anda na loja
+            // Permite clicar nas gavetas e portas para abrir instantaneamente
             if (ThreeEngine.evCache.length === 1) {
                 ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
                 const meshes = [];
@@ -182,7 +194,16 @@ export const ThreeEngine = {
             return;
         }
 
+        // Modo de Edição / Construção (Orbit Normal)
         if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
+            ThreeEngine.controls.enabled = false;
+            if (ThreeEngine.evCache.length === 2) {
+                ThreeEngine.prevDiff = -1;
+                ThreeEngine.gestureMode = 'pinch';
+            } else {
+                ThreeEngine.gestureMode = 'arrasto_projeto';
+                ThreeEngine.dragStartPoint = {x: e.clientX, y: e.clientY};
+            }
             return; 
         }
 
@@ -209,6 +230,7 @@ export const ThreeEngine = {
                     ThreeEngine.raycaster.ray.intersectPlane(ThreeEngine.dragPlane, hitPoint);
                     if (hitPoint) { 
                         ThreeEngine.dragObj = { obj: obj, offset: hitPoint.clone().sub(obj.position) }; 
+                        ThreeEngine.gestureMode = 'arrasto_peca';
                     } 
                 }
                 
@@ -221,7 +243,7 @@ export const ThreeEngine = {
                 
                 ThreeEngine.pressTimer = setTimeout(() => { 
                     if(ind) ind.style.display = 'none'; 
-                    if (ThreeEngine.isDown && !ThreeEngine.dragObj) { 
+                    if (ThreeEngine.isDown && ThreeEngine.gestureMode !== 'arrasto_peca') { 
                         ThreeEngine.isLongPress = true; 
                         if(window.App && window.App.ui) window.App.ui.openLiveEditor(obj.userData.id); 
                     } 
@@ -243,10 +265,10 @@ export const ThreeEngine = {
             }
         }
 
-        // NAVEGAÇÃO EM PRIMEIRA PESSOA (Andar + Olhar em 360)
+        // LÓGICA DO MODO PRIMEIRA PESSOA (FPS)
         if (ThreeEngine.isFPSMode) {
             if (ThreeEngine.evCache.length === 1 && ThreeEngine.dragStartPoint) {
-                // Arrastar 1 dedo rotaciona a cabeça do cliente (Look Around)
+                // Arrastar rotaciona a cabeça do cliente
                 const deltaX = e.clientX - ThreeEngine.dragStartPoint.x;
                 const deltaY = e.clientY - ThreeEngine.dragStartPoint.y;
                 
@@ -259,10 +281,10 @@ export const ThreeEngine = {
                 return;
             }
             if (ThreeEngine.evCache.length === 2) {
-                // Pinçar com 2 dedos faz o cliente andar (Caminhar)
+                // Pinçar o dedo anda para frente e para trás
                 const curDiff = Math.hypot(ThreeEngine.evCache[0].clientX - ThreeEngine.evCache[1].clientX, ThreeEngine.evCache[0].clientY - ThreeEngine.evCache[1].clientY);
                 if (ThreeEngine.prevDiff > 0) {
-                    const delta = (curDiff - ThreeEngine.prevDiff) * 0.01;
+                    const delta = (curDiff - ThreeEngine.prevDiff) * 0.02; // Velocidade do passo
                     const dir = new THREE.Vector3();
                     ThreeEngine.camera.getWorldDirection(dir);
                     ThreeEngine.camera.position.addScaledVector(dir, delta);
@@ -272,14 +294,46 @@ export const ThreeEngine = {
             }
         }
 
-        if (Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) > 15) { 
+        if (ThreeEngine.gestureMode === 'pinch' && ThreeEngine.evCache.length === 2 && AppState.arActive && AppState.modoInteracao === 'projeto') {
+            const curDiff = Math.hypot(ThreeEngine.evCache[0].clientX - ThreeEngine.evCache[1].clientX, ThreeEngine.evCache[0].clientY - ThreeEngine.evCache[1].clientY);
+            if (ThreeEngine.prevDiff > 0) {
+                const scaleFactor = 0.005; 
+                const delta = (curDiff - ThreeEngine.prevDiff) * scaleFactor;
+                let newScale = ThreeEngine.rootNode.scale.x + delta;
+                newScale = Math.max(0.1, Math.min(newScale, 8.0)); 
+                ThreeEngine.rootNode.scale.setScalar(newScale);
+                const elScale = document.getElementById('camScale');
+                if(elScale) elScale.value = newScale; 
+            }
+            ThreeEngine.prevDiff = curDiff;
+            return;
+        }
+
+        if (ThreeEngine.evCache.length === 1 && Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) > 15) { 
             clearTimeout(ThreeEngine.pressTimer); 
             ThreeEngine.isLongPress = false; 
             const ind = document.getElementById('longPressIndicator');
             if(ind) ind.style.display = 'none'; 
         }
 
-        if (ThreeEngine.dragObj && (AppState.tool === 'move' || (AppState.arActive && AppState.modoInteracao === 'peca'))) {
+        if (ThreeEngine.gestureMode === 'arrasto_projeto' && AppState.arActive && AppState.modoInteracao === 'projeto' && ThreeEngine.dragStartPoint) {
+            const deltaX = e.clientX - ThreeEngine.dragStartPoint.x;
+            const deltaY = e.clientY - ThreeEngine.dragStartPoint.y;
+            const rotY_Sens = 0.006; const posY_Sens = 0.01;
+
+            const newRotY = Math.max(-Math.PI * 1.5, Math.min(ThreeEngine.rootNode.rotation.y + deltaX * rotY_Sens, Math.PI * 1.5));
+            ThreeEngine.rootNode.rotation.y = newRotY;
+            const elRotY = document.getElementById('camRotY'); if(elRotY) elRotY.value = newRotY;
+
+            const newPosY = Math.max(-10, Math.min(ThreeEngine.rootNode.position.y - deltaY * posY_Sens, 10));
+            ThreeEngine.rootNode.position.y = newPosY;
+            const elPosY = document.getElementById('camPosY'); if(elPosY) elPosY.value = newPosY;
+            
+            ThreeEngine.dragStartPoint = {x: e.clientX, y: e.clientY}; 
+            return;
+        }
+
+        if (ThreeEngine.gestureMode === 'arrasto_peca' && ThreeEngine.dragObj && (AppState.tool === 'move' || AppState.arActive)) {
             ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera); 
             const modData = AppState.modules.find(m => m.id === ThreeEngine.dragObj.obj.userData.id); 
             
@@ -293,25 +347,18 @@ export const ThreeEngine = {
                     let tY = (modData.posY !== undefined) ? modData.posY / 1000 : 0; 
                     let rY = modData.rotY || 0; 
 
-                    const rW2 = AppState.roomWidth / 2000; 
-                    const rD2 = AppState.roomDepth / 2000;
-                    const halfW = (modData.largura || 1000) / 2000; 
-                    const halfD = (modData.profundidade || 500) / 2000;
-                    const snapDist = 0.4; 
-                    let snapped = false;
+                    const rW2 = AppState.roomWidth / 2000; const rD2 = AppState.roomDepth / 2000;
+                    const halfW = (modData.largura || 1000) / 2000; const halfD = (modData.profundidade || 500) / 2000;
+                    const snapDist = 0.4; let snapped = false;
 
                     if (Math.abs((tZ - halfD) - (-rD2)) < snapDist) { tZ = -rD2 + halfD; rY = 0; snapped = true; }
                     else if (Math.abs((tX - halfW) - (-rW2)) < snapDist) { tX = -rW2 + halfW; rY = -90; snapped = true; } 
                     else if (Math.abs((tX + halfW) - (rW2)) < snapDist) { tX = rW2 - halfW; rY = 90; snapped = true; } 
 
                     ThreeEngine.dragObj.obj.position.set(tX, tY, tZ); 
-                    if(snapped) { 
-                        ThreeEngine.dragObj.obj.rotation.y = rY * (Math.PI / 180); 
-                        modData.rotY = rY; 
-                    }
+                    if(snapped) { ThreeEngine.dragObj.obj.rotation.y = rY * (Math.PI / 180); modData.rotY = rY; }
                     
-                    modData.posX = tX * 1000; 
-                    modData.posZ = tZ * 1000; 
+                    modData.posX = tX * 1000; modData.posZ = tZ * 1000; 
                     if(window.App && window.App.ui) window.App.ui.syncToStateNoRebuild(); 
                 }
             }
@@ -320,31 +367,34 @@ export const ThreeEngine = {
 
     onPtrUp: (e) => {
         for (let i = 0; i < ThreeEngine.evCache.length; i++) {
-            if (ThreeEngine.evCache[i].pointerId === e.pointerId) {
-                ThreeEngine.evCache.splice(i, 1);
-                break;
-            }
+            if (ThreeEngine.evCache[i].pointerId === e.pointerId) { ThreeEngine.evCache.splice(i, 1); break; }
         }
 
         if (ThreeEngine.evCache.length < 2) { ThreeEngine.prevDiff = -1; }
 
         ThreeEngine.isDown = false; 
-        ThreeEngine.dragStartPoint = null;
         
-        if(!ThreeEngine.isFPSMode) {
+        if(!ThreeEngine.isFPSMode && AppState.tool === 'orbit') {
             ThreeEngine.controls.enabled = true; 
         }
         
         clearTimeout(ThreeEngine.pressTimer); 
         const ind = document.getElementById('longPressIndicator');
         if(ind) ind.style.display = 'none';
+        
+        ThreeEngine.dragStartPoint = null;
 
         if (ThreeEngine.dragObj) { ThreeEngine.dragObj = null; return; } 
         if (ThreeEngine.isLongPress) { ThreeEngine.isLongPress = false; return; } 
         
-        StorageManager.save();
+        if(ThreeEngine.gestureMode === 'pinch' || ThreeEngine.gestureMode === 'arrasto_projeto') {
+            ThreeEngine.gestureMode = 'none';
+            StorageManager.save();
+            return;
+        }
 
-        if (ThreeEngine.isFPSMode) return; // Abertura de portas no FPS já tratada no onPtrDown
+        StorageManager.save();
+        if (ThreeEngine.isFPSMode) return; 
 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
 
