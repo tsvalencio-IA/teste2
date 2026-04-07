@@ -1,7 +1,7 @@
 /**
  * src/3d/three-engine.js
  * Núcleo do WebGLRenderer.
- * CORREÇÃO PERICIAL: Mapeamento Linear (Fim do laranja), Luzes Neutras e Fundo Fixo.
+ * CORREÇÃO PERICIAL: Câmera Primeira Pessoa (Andar na loja), Cores Neutras Reais e Interação Touch Direta.
  */
 
 import { AppState } from '../core/app-state.js';
@@ -16,6 +16,7 @@ export const ThreeEngine = {
     
     evCache: [], prevDiff: -1, gestureMode: 'none', dragStartPoint: null,
     pmremGenerator: null, defaultEnvMap: null, bgTexture: null,
+    isFPSMode: false, fpsYaw: 0, fpsPitch: 0,
 
     init: () => {
         const c = document.getElementById('canvas-container'); 
@@ -24,7 +25,7 @@ export const ThreeEngine = {
 
         ThreeEngine.scene = new THREE.Scene();
         
-        // LUZ BRANCA NEUTRA (Nada de laranja)
+        // LUZ NEUTRA (Fim das cores alaranjadas, respeito absoluto ao Hexadecimal)
         ThreeEngine.scene.add(new THREE.AmbientLight(0xffffff, 0.9)); 
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); 
         dirLight.position.set(5, 10, 7); 
@@ -35,7 +36,7 @@ export const ThreeEngine = {
         ThreeEngine.scene.add(dirLight);
 
         ThreeEngine.camera = new THREE.PerspectiveCamera(45, c.clientWidth / c.clientHeight, 0.1, 1000); 
-        ThreeEngine.camera.position.set(0, 1.6, 6); 
+        ThreeEngine.camera.position.set(0, 1.6, 6); // Altura dos olhos
         
         ThreeEngine.renderer = new THREE.WebGLRenderer({ 
             canvas: cv, antialias: true, alpha: true, 
@@ -50,11 +51,9 @@ export const ThreeEngine = {
         ThreeEngine.renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
         ThreeEngine.renderer.outputEncoding = THREE.sRGBEncoding; 
         
-        // CORREÇÃO LETAL: LinearToneMapping não altera a cor original do hexadecimal.
         ThreeEngine.renderer.toneMapping = THREE.LinearToneMapping; 
         ThreeEngine.renderer.toneMappingExposure = 1.0; 
         
-        // ESTÚDIO DE REFLEXOS 100% BRANCO (Mata a luz amarela do ambiente antigo)
         ThreeEngine.pmremGenerator = new THREE.PMREMGenerator(ThreeEngine.renderer);
         ThreeEngine.pmremGenerator.compileEquirectangularShader();
         const envScene = new THREE.Scene();
@@ -62,7 +61,6 @@ export const ThreeEngine = {
         ThreeEngine.defaultEnvMap = ThreeEngine.pmremGenerator.fromScene(envScene).texture;
         ThreeEngine.scene.environment = ThreeEngine.defaultEnvMap;
 
-        // O OUTDOOR FOTOGRÁFICO DE FUNDO
         ThreeEngine.bgPlane = new THREE.Mesh(
             new THREE.PlaneGeometry(100, 100),
             new THREE.MeshBasicMaterial({ color: 0xffffff, depthWrite: false })
@@ -104,10 +102,8 @@ export const ThreeEngine = {
         const imgW = ThreeEngine.bgTexture.image.width;
         const imgH = ThreeEngine.bgTexture.image.height;
         const aspect = imgW / imgH;
-        
         const planeHeight = 40;
         const planeWidth = planeHeight * aspect;
-        
         ThreeEngine.bgPlane.geometry.dispose();
         ThreeEngine.bgPlane.geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
     },
@@ -118,7 +114,6 @@ export const ThreeEngine = {
             ThreeEngine.bgTexture = null;
             return;
         }
-        
         new THREE.TextureLoader().load(base64OrUrl, (tex) => {
             tex.encoding = THREE.sRGBEncoding;
             ThreeEngine.bgTexture = tex;
@@ -131,8 +126,7 @@ export const ThreeEngine = {
 
     getPtr: (e) => {
         const rect = ThreeEngine.renderer.domElement.getBoundingClientRect(); 
-        const cX = e.clientX; 
-        const cY = e.clientY;
+        const cX = e.clientX; const cY = e.clientY;
         ThreeEngine.pointer.x = ((cX - rect.left) / rect.width) * 2 - 1; 
         ThreeEngine.pointer.y = -((cY - rect.top) / rect.height) * 2 + 1; 
         return {x: cX, y: cY};
@@ -141,17 +135,58 @@ export const ThreeEngine = {
     onPtrDown: (e) => {
         if (window.App && window.App.ui) window.App.ui.fecharHUDs();
 
+        ThreeEngine.evCache.push(e);
+        if (ThreeEngine.evCache.length > 2) { ThreeEngine.evCache = []; return; } 
+
         const pos = ThreeEngine.getPtr(e); 
         ThreeEngine.isDown = true; 
         ThreeEngine.pDown = pos; 
         ThreeEngine.isLongPress = false; 
+
+        // NOVO: AÇÃO PARA O MODO PRIMEIRA PESSOA (Andar na Loja)
+        if (ThreeEngine.isFPSMode) {
+            ThreeEngine.dragStartPoint = {x: e.clientX, y: e.clientY};
+            
+            // Permite clicar em gavetas enquanto anda na loja
+            if (ThreeEngine.evCache.length === 1) {
+                ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
+                const meshes = [];
+                ThreeEngine.rootNode.traverse(child => { if(child.isMesh) meshes.push(child); });
+                const hits = ThreeEngine.raycaster.intersectObjects(meshes, false);
+                
+                if (hits.length > 0) {
+                    let anim = null;
+                    for (let h of hits) { 
+                        let curr = h.object; 
+                        if(curr.userData.type && curr.userData.type.includes('wall')) continue; 
+                        if (curr.type === 'LineSegments' && curr.parent) curr = curr.parent; 
+                        while (curr) { 
+                            if (curr.userData && curr.userData.isAnimatable) { anim = curr; break; } 
+                            curr = curr.parent; 
+                        } 
+                        if (anim) break; 
+                    }
+                    if (anim) { 
+                        anim.userData.isOpen = !anim.userData.isOpen; 
+                        const mod = AppState.modules.find(m => m.id === anim.userData.modId); 
+                        if (mod) {
+                            if (!mod.compStates) mod.compStates = {};
+                            mod.compStates[anim.userData.compKey] = anim.userData.isOpen; 
+                        }
+                        AppState.animacoesAtivas = AppState.animacoesAtivas.filter(a => a.obj !== anim); 
+                        AppState.animacoesAtivas.push({ obj: anim, type: anim.userData.type, target: anim.userData.isOpen }); 
+                        StorageManager.save(); 
+                    }
+                }
+            }
+            return;
+        }
 
         if (AppState.arActive && AppState.modoInteracao === 'projeto') { 
             return; 
         }
 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
-        
         const meshes = [];
         ThreeEngine.rootNode.traverse(child => { if(child.isMesh) meshes.push(child); });
         const hits = ThreeEngine.raycaster.intersectObjects(meshes, false);
@@ -201,6 +236,42 @@ export const ThreeEngine = {
         if (!ThreeEngine.isDown) return; 
         ThreeEngine.getPtr(e);
 
+        for (let i = 0; i < ThreeEngine.evCache.length; i++) {
+            if (e.pointerId === ThreeEngine.evCache[i].pointerId) {
+                ThreeEngine.evCache[i] = e;
+                break;
+            }
+        }
+
+        // NAVEGAÇÃO EM PRIMEIRA PESSOA (Andar + Olhar em 360)
+        if (ThreeEngine.isFPSMode) {
+            if (ThreeEngine.evCache.length === 1 && ThreeEngine.dragStartPoint) {
+                // Arrastar 1 dedo rotaciona a cabeça do cliente (Look Around)
+                const deltaX = e.clientX - ThreeEngine.dragStartPoint.x;
+                const deltaY = e.clientY - ThreeEngine.dragStartPoint.y;
+                
+                ThreeEngine.fpsYaw -= deltaX * 0.005;
+                ThreeEngine.fpsPitch -= deltaY * 0.005;
+                ThreeEngine.fpsPitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, ThreeEngine.fpsPitch));
+                
+                ThreeEngine.camera.rotation.set(ThreeEngine.fpsPitch, ThreeEngine.fpsYaw, 0, 'YXZ');
+                ThreeEngine.dragStartPoint = {x: e.clientX, y: e.clientY};
+                return;
+            }
+            if (ThreeEngine.evCache.length === 2) {
+                // Pinçar com 2 dedos faz o cliente andar (Caminhar)
+                const curDiff = Math.hypot(ThreeEngine.evCache[0].clientX - ThreeEngine.evCache[1].clientX, ThreeEngine.evCache[0].clientY - ThreeEngine.evCache[1].clientY);
+                if (ThreeEngine.prevDiff > 0) {
+                    const delta = (curDiff - ThreeEngine.prevDiff) * 0.01;
+                    const dir = new THREE.Vector3();
+                    ThreeEngine.camera.getWorldDirection(dir);
+                    ThreeEngine.camera.position.addScaledVector(dir, delta);
+                }
+                ThreeEngine.prevDiff = curDiff;
+                return;
+            }
+        }
+
         if (Math.hypot(e.clientX - ThreeEngine.pDown.x, e.clientY - ThreeEngine.pDown.y) > 15) { 
             clearTimeout(ThreeEngine.pressTimer); 
             ThreeEngine.isLongPress = false; 
@@ -248,11 +319,19 @@ export const ThreeEngine = {
     },
 
     onPtrUp: (e) => {
+        for (let i = 0; i < ThreeEngine.evCache.length; i++) {
+            if (ThreeEngine.evCache[i].pointerId === e.pointerId) {
+                ThreeEngine.evCache.splice(i, 1);
+                break;
+            }
+        }
+
+        if (ThreeEngine.evCache.length < 2) { ThreeEngine.prevDiff = -1; }
+
         ThreeEngine.isDown = false; 
+        ThreeEngine.dragStartPoint = null;
         
-        const bEP = document.getElementById('btnExitPrint');
-        const isPrintMode = bEP && bEP.style.display === 'block';
-        if(!isPrintMode) {
+        if(!ThreeEngine.isFPSMode) {
             ThreeEngine.controls.enabled = true; 
         }
         
@@ -264,6 +343,8 @@ export const ThreeEngine = {
         if (ThreeEngine.isLongPress) { ThreeEngine.isLongPress = false; return; } 
         
         StorageManager.save();
+
+        if (ThreeEngine.isFPSMode) return; // Abertura de portas no FPS já tratada no onPtrDown
 
         ThreeEngine.raycaster.setFromCamera(ThreeEngine.pointer, ThreeEngine.camera);
 
@@ -376,7 +457,10 @@ export const ThreeEngine = {
             }
         }
         
-        if(ThreeEngine.controls.enabled) ThreeEngine.controls.update(); 
+        if(!ThreeEngine.isFPSMode && ThreeEngine.controls.enabled) {
+            ThreeEngine.controls.update(); 
+        }
+        
         PostProcessing.render(); 
     }
 };
