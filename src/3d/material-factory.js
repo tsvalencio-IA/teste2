@@ -1,11 +1,11 @@
 /**
  * src/3d/material-factory.js
  * Fábrica de materiais fotorrealistas SENIORES (PBR).
- * CORREÇÃO DEFINITIVA: Remoção do gerador procedural "gibi". Cores fiéis e luz neutra.
+ * CORREÇÃO PERICIAL: Cores exatas da marca, sem distorção.
  */
 
 export const MatDefs = {
-    // MDF Madeirados (Tons neutros e fiéis)
+    // MDF Madeirados
     'amadeirado_padrao': { color: 0x8B5A2B, roughness: 0.7, metalness: 0.0, label: "Amadeirado Padrão" },
     'amadeirado_claro': { color: 0xD2B48C, roughness: 0.7, metalness: 0.0, label: "MDF Madeira Clara" }, 
     'louro_freijo': { color: 0x9E7A5A, roughness: 0.75, metalness: 0.0, label: "MDF Louro Freijó" },
@@ -24,11 +24,11 @@ export const MatDefs = {
     'mdf_rosa_milkshake': { color: 0xFFB6C1, roughness: 0.8, metalness: 0.0, label: "MDF Rosa Milkshake" },
     'mdf_areia': { color: 0xE8DCC4, roughness: 0.8, metalness: 0.0, label: "MDF Areia" },
     
-    // LACA / ALTO BRILHO (Cores Vivas Mercadão com Verniz Automotivo)
-    'mdf_branco_diamante': { color: 0xFFFFFF, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.02, label: "MDF Branco Diamante (Brilho)" },
-    'mdf_azul_mercadao': { color: 0x1565C0, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.02, label: "MDF Azul Mercadão" },
-    'mdf_vermelho_mercadao': { color: 0xCC0000, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.02, label: "MDF Vermelho Mercadão" }, 
-    'mdf_vermelho_fini': { color: 0xE3242B, roughness: 0.05, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.05, label: "MDF Vermelho Fini" },
+    // LACA / ALTO BRILHO (Cores Vivas Mercadão)
+    'mdf_branco_diamante': { color: 0xFFFFFF, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, label: "MDF Branco Diamante (Brilho)" },
+    'mdf_azul_mercadao': { color: 0x1E88E5, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, label: "MDF Azul Mercadão" },
+    'mdf_vermelho_mercadao': { color: 0xE3000F, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, label: "MDF Vermelho Mercadão" }, 
+    'mdf_vermelho_fini': { color: 0xE3242B, roughness: 0.05, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.1, label: "MDF Vermelho Fini" },
     'misto': { color: 0xFAFAFA, frontColor: 0x8B5A2B, roughness: 0.8, metalness: 0.0, label: "Misto (Branco/Madeira)" },
     
     // Vidros Arquitetônicos Reais
@@ -47,7 +47,7 @@ export const MatDefs = {
     'tecido_linho_cinza': { color: 0x888888, roughness: 1.0, metalness: 0.0, label: "Tecido Linho" },
     'tecido_couro_marrom': { color: 0x4A3022, roughness: 0.6, metalness: 0.0, label: "Couro Marrom" },
     
-    // Iluminação e Rodapé
+    // Iluminação
     'led': { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.0, label: "Fita LED" },
     'rodape': { color: 0x111111, roughness: 0.9, metalness: 0.0, label: "Rodapé Preto" }
 };
@@ -70,7 +70,7 @@ export const MaterialFactory = {
     },
 
     getLogoMercadaoMaterial: () => {
-        const tex = MaterialFactory.createLogoTexture("MERCADÃO DOS ÓCULOS", "#CC0000", "#FFFFFF");
+        const tex = MaterialFactory.createLogoTexture("MERCADÃO DOS ÓCULOS", "#E3000F", "#FFFFFF");
         return new THREE.MeshPhysicalMaterial({ 
             map: tex, 
             emissive: 0x330000, 
