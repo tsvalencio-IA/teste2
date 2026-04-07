@@ -1,6 +1,7 @@
 /**
  * src/main.js
- * Ponto de entrada (Bootstrapper). Orquestra os módulos e os expõe ao HTML.
+ * Ponto de entrada (Bootstrapper).
+ * CORREÇÃO: Disparo do Modo Primeira Pessoa (FPS) no Print Mode.
  */
 
 import { AppState } from './core/app-state.js';
@@ -44,12 +45,8 @@ window.App = {
     
     processGlobalPhoto: (inputData) => { 
         let file = null;
-        
-        if (inputData && inputData.files && inputData.files.length > 0) {
-            file = inputData.files[0];
-        } else if (inputData && inputData.target && inputData.target.files && inputData.target.files.length > 0) {
-            file = inputData.target.files[0];
-        }
+        if (inputData && inputData.files && inputData.files.length > 0) file = inputData.files[0];
+        else if (inputData && inputData.target && inputData.target.files && inputData.target.files.length > 0) file = inputData.target.files[0];
         
         if (!file) return;
 
@@ -97,27 +94,18 @@ window.App = {
             window.App.modules.refreshAll(); 
             StorageManager.save(); 
         },
-        addGeneric: () => { 
-            UIController.fecharHUDs(); 
-            window.App.modules.add('armario'); 
-        },
+        addGeneric: () => { UIController.fecharHUDs(); window.App.modules.add('armario'); },
         select: (id) => { 
             AppState.selectedModule = id; 
             ThreeEngine.highlightSelection(id); 
             UIController.renderList(); 
             const editor = document.getElementById('floatingEditor');
-            if (id && editor && editor.classList.contains('active')) { 
-                UIController.openLiveEditor(id); 
-            } 
+            if (id && editor && editor.classList.contains('active')) UIController.openLiveEditor(id); 
         },
         removeCurrent: () => { 
             let idToRem = AppState.selectedModule; 
-            if (!idToRem) { 
-                const el = document.getElementById('eId'); 
-                if(el) idToRem = el.value; 
-            } 
+            if (!idToRem) { const el = document.getElementById('eId'); if(el) idToRem = el.value; } 
             if (!idToRem) return UIController.toast("Nenhum módulo selecionado.", "error"); 
-            
             AppState.modules = AppState.modules.filter(m => m.id !== idToRem); 
             window.App.modules.select(null); 
             UIController.fecharEditor(); 
@@ -125,11 +113,7 @@ window.App = {
             UIController.toast("Módulo removido.", "success"); 
             StorageManager.save(); 
         },
-        refreshAll: () => { 
-            SceneBuilder.rebuildScene(); 
-            BOMEngine.update(); 
-            UIController.renderList(); 
-        },
+        refreshAll: () => { SceneBuilder.rebuildScene(); BOMEngine.update(); UIController.renderList(); },
         exportarProjeto: () => { 
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(AppState.modules, null, 2)); 
             const downloadAnchorNode = document.createElement('a'); 
@@ -140,12 +124,7 @@ window.App = {
             downloadAnchorNode.remove(); 
             UIController.toast("Projeto exportado em JSON!", "success"); 
         },
-        gerarPlanoCorte: () => { 
-            CutPlanEngine.generate(); 
-            const container = document.getElementById('cutPlanContainer');
-            if (container) container.style.display = 'block'; 
-            UIController.toast("Plano de Corte (Nesting) Gerado!"); 
-        }
+        gerarPlanoCorte: () => { CutPlanEngine.generate(); const container = document.getElementById('cutPlanContainer'); if (container) container.style.display = 'block'; UIController.toast("Plano de Corte Gerado!"); }
     },
 
     ar: {
@@ -162,12 +141,10 @@ window.App = {
             const sPr = document.getElementById('sw-projeto'); if(sPr) sPr.className = `switch-btn ${m==='projeto'?'active':''}`; 
         },
         syncRoomBounds: () => { 
-            const elW = document.getElementById('roomW');
-            const elD = document.getElementById('roomD');
+            const elW = document.getElementById('roomW'); const elD = document.getElementById('roomD');
             AppState.roomWidth = elW ? parseFloat(elW.value) || 4500 : 4500; 
             AppState.roomDepth = elD ? parseFloat(elD.value) || 8000 : 8000; 
-            SceneBuilder.rebuildScene(); 
-            StorageManager.save(); 
+            SceneBuilder.rebuildScene(); StorageManager.save(); 
         },
         toggleAR: () => { 
             AppState.arActive = !AppState.arActive; 
@@ -176,11 +153,9 @@ window.App = {
                 if(AppState.imagemFundoURL) {
                     ThreeEngine.setBackgroundImage(AppState.imagemFundoURL);
                     if (txt) txt.innerText = 'Desativar Fundo Real'; 
-                    SceneBuilder.rebuildScene();
-                    UIController.toast("Fundo ativado. Ambiente Fotorrealista pronto!", "success"); 
+                    SceneBuilder.rebuildScene(); UIController.fecharHUDs();
                 } else {
-                    const fc = document.getElementById('fotoCliente');
-                    if (fc) fc.click(); 
+                    const fc = document.getElementById('fotoCliente'); if (fc) fc.click(); 
                 }
             } else { 
                 ThreeEngine.setBackgroundImage(null);
@@ -189,63 +164,47 @@ window.App = {
             } 
         },
         applyTransform: () => { 
-            const elScale = document.getElementById('camScale');
-            const elRotX = document.getElementById('camRotX');
-            const elRotY = document.getElementById('camRotY');
-            const elPosY = document.getElementById('camPosY');
-            
+            const elScale = document.getElementById('camScale'); const elRotX = document.getElementById('camRotX');
+            const elRotY = document.getElementById('camRotY'); const elPosY = document.getElementById('camPosY');
             if (elScale && elScale.value) ThreeEngine.rootNode.scale.setScalar(parseFloat(elScale.value) || 1); 
             if (elRotX && elRotX.value) ThreeEngine.rootNode.rotation.x = parseFloat(elRotX.value) || 0; 
             if (elRotY && elRotY.value) ThreeEngine.rootNode.rotation.y = parseFloat(elRotY.value) || 0; 
             if (elPosY && elPosY.value) ThreeEngine.rootNode.position.y = parseFloat(elPosY.value) || 0; 
         },
         resetAR: () => { 
-            ThreeEngine.rootNode.rotation.set(0,0,0); 
-            ThreeEngine.rootNode.position.set(0,0,0); 
-            ThreeEngine.rootNode.scale.setScalar(1); 
-            
+            ThreeEngine.rootNode.rotation.set(0,0,0); ThreeEngine.rootNode.position.set(0,0,0); ThreeEngine.rootNode.scale.setScalar(1); 
             const elScale = document.getElementById('camScale'); if(elScale) elScale.value = 1; 
             const elRotX = document.getElementById('camRotX'); if(elRotX) elRotX.value = 0; 
             const elRotY = document.getElementById('camRotY'); if(elRotY) elRotY.value = 0; 
             const elPosY = document.getElementById('camPosY'); if(elPosY) elPosY.value = 0; 
         },
         enterPrintMode: () => { 
-            UIController.fecharHUDs(); 
-            UIController.fecharEditor(); 
+            UIController.fecharHUDs(); UIController.fecharEditor(); 
             ['mainHeader','mainSignature','mainControls','toolModeContainer'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.classList.add('hide-for-print');
+                const el = document.getElementById(id); if (el) el.classList.add('hide-for-print');
             }); 
-            const bEP = document.getElementById('btnExitPrint');
-            if (bEP) bEP.style.display='block'; 
-            ThreeEngine.controls.enableRotate = false; 
-            ThreeEngine.controls.enablePan = false; 
-            ThreeEngine.controls.enableZoom = false; 
+            const bEP = document.getElementById('btnExitPrint'); if (bEP) bEP.style.display='block'; 
+            
+            // INICIA O MODO DE ANDAR PELA LOJA (First Person)
+            ThreeEngine.isFPSMode = true;
+            ThreeEngine.controls.enabled = false; // Desliga o giro do móvel
+            ThreeEngine.camera.rotation.order = 'YXZ'; // Prepara a câmera para virar o pescoço humano
         },
         exitPrintMode: () => { 
             ['mainHeader','mainSignature','mainControls','toolModeContainer'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.classList.remove('hide-for-print');
+                const el = document.getElementById(id); if (el) el.classList.remove('hide-for-print');
             }); 
-            const bEP = document.getElementById('btnExitPrint');
-            if (bEP) bEP.style.display='none'; 
-            ThreeEngine.controls.enableRotate = true; 
-            ThreeEngine.controls.enablePan = true; 
-            ThreeEngine.controls.enableZoom = true; 
+            const bEP = document.getElementById('btnExitPrint'); if (bEP) bEP.style.display='none'; 
+            
+            // Restaura o modo de construção/edição
+            ThreeEngine.isFPSMode = false;
+            ThreeEngine.controls.enabled = true; 
         }
     },
 
     config: { 
-        save: () => { 
-            localStorage.setItem('ak_gemini_cad', AppState.apiKeys.gemini); 
-            localStorage.setItem('ak_groq_cad', AppState.apiKeys.groq); 
-        }, 
-        load: () => { 
-            const eG = document.getElementById('api-gemini'); 
-            if (eG) eG.value = AppState.apiKeys.gemini; 
-            const eQ = document.getElementById('api-groq'); 
-            if (eQ) eQ.value = AppState.apiKeys.groq; 
-        } 
+        save: () => { localStorage.setItem('ak_gemini_cad', AppState.apiKeys.gemini); localStorage.setItem('ak_groq_cad', AppState.apiKeys.groq); }, 
+        load: () => { const eG = document.getElementById('api-gemini'); if (eG) eG.value = AppState.apiKeys.gemini; const eQ = document.getElementById('api-groq'); if (eQ) eQ.value = AppState.apiKeys.groq; } 
     }
 };
 
