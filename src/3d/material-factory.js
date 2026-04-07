@@ -1,7 +1,7 @@
 /**
  * src/3d/material-factory.js
  * Fábrica de materiais fotorrealistas SENIORES (PBR).
- * CORREÇÃO PERICIAL: Cores exatas da marca, sem distorção.
+ * CORREÇÃO: THREE.DoubleSide ativado para restaurar o interior das caixarias e gavetas.
  */
 
 export const MatDefs = {
@@ -25,29 +25,26 @@ export const MatDefs = {
     'mdf_areia': { color: 0xE8DCC4, roughness: 0.8, metalness: 0.0, label: "MDF Areia" },
     
     // LACA / ALTO BRILHO (Cores Vivas Mercadão)
-    'mdf_branco_diamante': { color: 0xFFFFFF, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, label: "MDF Branco Diamante (Brilho)" },
-    'mdf_azul_mercadao': { color: 0x1E88E5, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, label: "MDF Azul Mercadão" },
-    'mdf_vermelho_mercadao': { color: 0xE3000F, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.05, label: "MDF Vermelho Mercadão" }, 
-    'mdf_vermelho_fini': { color: 0xE3242B, roughness: 0.05, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.1, label: "MDF Vermelho Fini" },
+    'mdf_branco_diamante': { color: 0xFFFFFF, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.02, label: "MDF Branco Diamante (Brilho)" },
+    'mdf_azul_mercadao': { color: 0x1565C0, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.02, label: "MDF Azul Mercadão" },
+    'mdf_vermelho_mercadao': { color: 0xCC0000, roughness: 0.05, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.02, label: "MDF Vermelho Mercadão" }, 
+    'mdf_vermelho_fini': { color: 0xE3242B, roughness: 0.05, metalness: 0.0, clearcoat: 0.8, clearcoatRoughness: 0.05, label: "MDF Vermelho Fini" },
     'misto': { color: 0xFAFAFA, frontColor: 0x8B5A2B, roughness: 0.8, metalness: 0.0, label: "Misto (Branco/Madeira)" },
     
-    // Vidros Arquitetônicos Reais
+    // Vidros Arquitetônicos
     'vidro_incolor': { color: 0xffffff, roughness: 0.0, metalness: 0.1, transmission: 1.0, ior: 1.52, thickness: 0.05, transparent: true, opacity: 1, label: "Vidro Incolor" },
     'vidro_fume': { color: 0x222222, roughness: 0.0, metalness: 0.2, transmission: 0.8, ior: 1.52, thickness: 0.05, transparent: true, opacity: 1, label: "Vidro Fumê" },
     'vidro_bronze': { color: 0x6e4b33, roughness: 0.0, metalness: 0.3, transmission: 0.85, ior: 1.52, thickness: 0.05, transparent: true, opacity: 1, label: "Vidro Bronze" },
     'vidro_reflecta': { color: 0x8A7B6E, roughness: 0.05, metalness: 0.9, transmission: 0.3, ior: 2.0, thickness: 0.02, transparent: true, opacity: 1, label: "Vidro Reflecta" },
     'espelho': { color: 0xffffff, roughness: 0.0, metalness: 1.0, clearcoat: 1.0, label: "Espelho Prata" },
     
-    // Metais
+    // Metais e Tecidos
     'metal_preto': { color: 0x151515, roughness: 0.3, metalness: 0.9, label: "Metalon Preto" },
     'metal_dourado': { color: 0xD4AF37, roughness: 0.15, metalness: 1.0, clearcoat: 0.5, label: "Metal Dourado / Inox" },
     'metal_cobre': { color: 0xB87333, roughness: 0.15, metalness: 1.0, clearcoat: 0.5, label: "Metal Cobre" },
-    
-    // Tecidos e Estofados
     'tecido_linho_cinza': { color: 0x888888, roughness: 1.0, metalness: 0.0, label: "Tecido Linho" },
     'tecido_couro_marrom': { color: 0x4A3022, roughness: 0.6, metalness: 0.0, label: "Couro Marrom" },
     
-    // Iluminação
     'led': { color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 2.0, label: "Fita LED" },
     'rodape': { color: 0x111111, roughness: 0.9, metalness: 0.0, label: "Rodapé Preto" }
 };
@@ -61,23 +58,22 @@ export const MaterialFactory = {
         ctx.font = 'bold 90px "Montserrat", sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillStyle = textColor; ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-        const tex = new THREE.CanvasTexture(canvas); tex.anisotropy = 16; return tex;
+        const tex = new window.THREE.CanvasTexture(canvas); tex.anisotropy = 16; return tex;
     },
 
     getRealMaterial: (key) => {
         let def = MatDefs[key] || MatDefs.amadeirado_padrao;
-        return new THREE.MeshPhysicalMaterial(def);
+        // A SOLUÇÃO DO ESPAÇO OCO ESTÁ AQUI: side: 2 força o motor a pintar o interior do móvel
+        let props = { ...def, side: window.THREE.DoubleSide };
+        return new window.THREE.MeshPhysicalMaterial(props);
     },
 
     getLogoMercadaoMaterial: () => {
-        const tex = MaterialFactory.createLogoTexture("MERCADÃO DOS ÓCULOS", "#E3000F", "#FFFFFF");
-        return new THREE.MeshPhysicalMaterial({ 
-            map: tex, 
-            emissive: 0x330000, 
-            emissiveIntensity: 0.5, 
-            roughness: 0.05,
-            clearcoat: 1.0,
-            clearcoatRoughness: 0.02
+        const tex = MaterialFactory.createLogoTexture("MERCADÃO DOS ÓCULOS", "#CC0000", "#FFFFFF");
+        return new window.THREE.MeshPhysicalMaterial({ 
+            map: tex, emissive: 0x330000, emissiveIntensity: 0.5, 
+            roughness: 0.05, clearcoat: 1.0, clearcoatRoughness: 0.02,
+            side: window.THREE.DoubleSide
         });
     }
 };
