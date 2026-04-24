@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Conexão ELM327 CHX - Comunicação Real</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        button.disconnect {
+            background-color: #dc3545;
+        }
+        button.disconnect:hover:not(:disabled) {
+            background-color: #c82333;
+        }
+        #status {
+            padding: 15px;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .device-info {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196F3;
+        }
+        .device-info h3 {
+            margin-top: 0;
+            color: #1565c0;
+        }
+        .device-info p {
+            margin: 5px 0;
+            font-family: monospace;
+        }
+        #log {
+            text-align: left;
+            background-color: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            margin-top: 20px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            border-radius: 5px;
+            font-size: 12px;
+            border: 1px solid #333;
+        }
+        .command-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            font-family: monospace;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .characteristics-list {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            border: 1px solid #ddd;
+        }
+        .characteristics-list h4 {
+            margin-top: 0;
+            color: #333;
+        }
+        .characteristic-item {
+            padding: 8px;
+            margin: 5px 0;
+            background-color: white;
+            border-left: 3px solid #007bff;
+            padding-left: 12px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Teste de Conexão ELM327 CHX</h1>
+        <p style="text-align: center; color: #666;">Comunicação Real via Bluetooth LE com Envio de Comandos AT</p>
+        
+        <div id="status" class="info">Clique em "Conectar" para iniciar a busca pelo dispositivo CHX.</div>
+        
+        <div class="controls">
+            <button id="connectButton">🔍 Conectar ao CHX</button>
+            <button id="disconnectButton" class="disconnect" disabled>❌ Desconectar</button>
+            <button id="testButton" disabled>⚡ Enviar ATZ (Reset)</button>
+            <button id="testATI" disabled>📋 Enviar ATI (Info)</button>
+        </div>
+
+        <div id="deviceInfo" class="device-info" style="display: none;">
+            <h3>Informações do Dispositivo</h3>
+            <p><strong>Nome:</strong> <span id="deviceName">-</span></p>
+            <p><strong>ID:</strong> <span id="deviceId">-</span></p>
+            <p><strong>Serviço UUID:</strong> <span id="serviceUUID">-</span></p>
+            <p><strong>TX Char UUID:</strong> <span id="txCharUUID">-</span></p>
+            <p><strong>RX Char UUID:</strong> <span id="rxCharUUID">-</span></p>
+        </div>
+
+        <div id="characteristics" class="characteristics-list" style="display: none;">
+            <h4>Características Descobertas:</h4>
+            <div id="charList"></div>
+        </div>
+
+        <div class="command-input" style="display: none;" id="commandSection">
+            <input type="text" id="commandInput" placeholder="Digite um comando AT (ex: ATZ, ATI, AT+DM1)" />
+            <button id="sendButton">Enviar</button>
+        </div>
+
+        <h3>📝 Log de Comunicação</h3>
+        <div id="log">[Log]\n</div>
+    </div>
+
+    <script>
+        // UUIDs padrão para ELM327 BLE (CHX e similares)
+        const KNOWN_UUIDS = {
+            SERVICE: "0000fff0-0000-1000-8000-00805f9b34fb",
+            TX_CHAR: "0000fff1-0000-1000-8000-00805f9b34fb",
+            RX_CHAR: "0000fff2-0000-1000-8000-00805f9b34fb",
+            // Alternativas comuns
+            ALT_SERVICE: "00001101-0000-1000-8000-00805f9b34fb",
+            ALT_TX: "00001143-0000-1000-8000-00805f9b34fb",
+            ALT_RX: "00001142-0000-1000-8000-00805f9b34fb"
+        };
+
+        let device = null;
+        let server = null;
+        let service = null;
+        let txChar = null;
+        let rxChar = null;
+
+        const connectButton = document.getElementById('connectButton');
+        const disconnectButton = document.getElementById('disconnectButton');
+        const testButton = document.getElementById('testButton');
+        const testATI = document.getElementById('testATI');
+        const sendButton = document.getElementById('sendButton');
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+        const deviceInfo = document.getElementById('deviceInfo');
+        const commandSection = document.getElementById('commandSection');
+        const commandInput = document.getElementById('commandInput');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString('pt-BR');
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
+            const logEntry = `[${timestamp}] ${prefix} ${message}`;
+            logDiv.textContent += logEntry + '\n';
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(logEntry);
+        }
+
+        function updateStatus(message, type = 'info') {
+            statusDiv.textContent = message;
+            statusDiv.className = type;
+        }
+
+        async function discoverCharacteristics() {
+            log("Descobrindo serviços e características...");
+            
+            try {
+                const services = await server.getPrimaryServices();
+                log(`Encontrados ${services.length} serviço(s) primário(s)`);
+
+                let foundService = null;
+                let foundTx = null;
+                let foundRx = null;
+
+                for (const svc of services) {
+                    const uuid = svc.uuid.toString();
+                    log(`  Serviço: ${uuid}`);
+
+                    // Verifica se é um dos UUIDs conhecidos
+                    if (uuid === KNOWN_UUIDS.SERVICE || uuid === KNOWN_UUIDS.ALT_SERVICE) {
+                        foundService = svc;
+                        log(`    ✓ Serviço ELM327 identificado!`);
+
+                        const characteristics = await svc.getCharacteristics();
+                        log(`    Características encontradas: ${characteristics.length}`);
+
+                        const charList = document.getElementById('charList');
+                        charList.innerHTML = '';
+
+                        for (const char of characteristics) {
+                            const charUuid = char.uuid.toString();
+                            const props = char.properties;
+                            const propsList = [];
+                            if (props.write) propsList.push('WRITE');
+                            if (props.read) propsList.push('READ');
+                            if (props.notify) propsList.push('NOTIFY');
+                            if (props.indicate) propsList.push('INDICATE');
+
+                            log(`      ${charUuid} [${propsList.join(', ')}]`);
+
+                            const charItem = document.createElement('div');
+                            charItem.className = 'characteristic-item';
+                            charItem.textContent = `${charUuid} [${propsList.join(', ')}]`;
+                            charList.appendChild(charItem);
+
+                            // Identifica TX e RX
+                            if ((charUuid === KNOWN_UUIDS.TX_CHAR || charUuid === KNOWN_UUIDS.ALT_TX) && props.write) {
+                                foundTx = char;
+                                log(`        → Identificado como TX (Write)`);
+                            }
+                            if ((charUuid === KNOWN_UUIDS.RX_CHAR || charUuid === KNOWN_UUIDS.ALT_RX) && (props.read || props.notify)) {
+                                foundRx = char;
+                                log(`        → Identificado como RX (Read/Notify)`);
+                            }
+
+                            // Se não encontrou TX/RX pelos UUIDs conhecidos, usa a primeira com write e a primeira com read
+                            if (!foundTx && props.write) {
+                                foundTx = char;
+                                log(`        → Usando como TX (Write)`);
+                            }
+                            if (!foundRx && (props.read || props.notify)) {
+                                foundRx = char;
+                                log(`        → Usando como RX (Read/Notify)`);
+                            }
+                        }
+                    }
+                }
+
+                if (foundService && foundTx && foundRx) {
+                    service = foundService;
+                    txChar = foundTx;
+                    rxChar = foundRx;
+
+                    // Atualiza UI com informações
+                    document.getElementById('serviceUUID').textContent = service.uuid;
+                    document.getElementById('txCharUUID').textContent = txChar.uuid;
+                    document.getElementById('rxCharUUID').textContent = rxChar.uuid;
+                    document.getElementById('characteristics').style.display = 'block';
+
+                    // Ativa notificações se disponível
+                    if (rxChar.properties.notify) {
+                        await rxChar.startNotifications();
+                        rxChar.addEventListener('characteristicvaluechanged', handleNotification);
+                        log("Notificações ativadas para RX", 'success');
+                    }
+
+                    return true;
+                } else {
+                    log("Não foi possível identificar TX/RX corretamente", 'error');
+                    return false;
+                }
+
+            } catch (error) {
+                log(`Erro ao descobrir características: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        function handleNotification(event) {
+            const value = event.target.value;
+            const decoder = new TextDecoder();
+            const response = decoder.decode(value);
+            log(`Resposta recebida: ${response.trim()}`);
+        }
+
+        async function sendCommand(command) {
+            if (!txChar) {
+                log("Erro: Característica TX não disponível", 'error');
+                return;
+            }
+
+            try {
+                const encoder = new TextEncoder();
+                const data = encoder.encode(command + '\r');
+                await txChar.writeValue(data);
+                log(`Comando enviado: ${command}`, 'success');
+            } catch (error) {
+                log(`Erro ao enviar comando: ${error.message}`, 'error');
+            }
+        }
+
+        connectButton.addEventListener('click', async () => {
+            connectButton.disabled = true;
+            updateStatus("Solicitando dispositivo Bluetooth...", 'info');
+            log("Iniciando processo de conexão...");
+
+            try {
+                log("Etapa 1: Solicitando dispositivo com filtro específico para CHX...");
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { namePrefix: 'CHX' },
+                        { namePrefix: 'ELM' },
+                        { namePrefix: 'OBD' }
+                    ],
+                    optionalServices: [
+                        KNOWN_UUIDS.SERVICE,
+                        KNOWN_UUIDS.ALT_SERVICE,
+                        '00001101-0000-1000-8000-00805f9b34fb'
+                    ]
+                });
+
+                log(`Etapa 2: Dispositivo selecionado: ${device.name} (${device.id})`, 'success');
+                document.getElementById('deviceName').textContent = device.name || 'Desconhecido';
+                document.getElementById('deviceId').textContent = device.id;
+                deviceInfo.style.display = 'block';
+
+                log("Etapa 3: Conectando ao GATT Server...");
+                server = await device.gatt.connect();
+                log("Conectado ao GATT Server com sucesso!", 'success');
+
+                log("Etapa 4: Descobrindo características...");
+                const success = await discoverCharacteristics();
+
+                if (success) {
+                    updateStatus(`✅ Conectado ao ${device.name}. Pronto para enviar comandos!`, 'success');
+                    log("Conexão estabelecida com sucesso!", 'success');
+                    
+                    connectButton.disabled = true;
+                    disconnectButton.disabled = false;
+                    testButton.disabled = false;
+                    testATI.disabled = false;
+                    commandSection.style.display = 'flex';
+                } else {
+                    throw new Error("Falha ao descobrir características");
+                }
+
+            } catch (error) {
+                const errorMessage = error.message || error.toString();
+                log(`ERRO: ${errorMessage}`, 'error');
+                updateStatus(`❌ Erro: ${errorMessage}`, 'error');
+                connectButton.disabled = false;
+
+                if (errorMessage.includes("NotFoundError")) {
+                    log("DICA: Nenhum dispositivo CHX encontrado. Verifique se o adaptador está ligado e em modo de pareamento.", 'info');
+                } else if (errorMessage.includes("User cancelled")) {
+                    log("DICA: Você cancelou a seleção do dispositivo.", 'info');
+                } else if (errorMessage.includes("SecurityError")) {
+                    log("DICA: Permissão de Bluetooth negada. Verifique as permissões do site.", 'info');
+                }
+            }
+        });
+
+        disconnectButton.addEventListener('click', async () => {
+            if (device && device.gatt.connected) {
+                device.gatt.disconnect();
+                log("Desconectado do dispositivo", 'info');
+                updateStatus("Desconectado", 'info');
+                
+                connectButton.disabled = false;
+                disconnectButton.disabled = true;
+                testButton.disabled = true;
+                testATI.disabled = true;
+                commandSection.style.display = 'none';
+                deviceInfo.style.display = 'none';
+                document.getElementById('characteristics').style.display = 'none';
+
+                device = null;
+                server = null;
+                service = null;
+                txChar = null;
+                rxChar = null;
+            }
+        });
+
+        testButton.addEventListener('click', () => {
+            sendCommand('ATZ');
+        });
+
+        testATI.addEventListener('click', () => {
+            sendCommand('ATI');
+        });
+
+        sendButton.addEventListener('click', () => {
+            const command = commandInput.value.trim();
+            if (command) {
+                sendCommand(command);
+                commandInput.value = '';
+            }
+        });
+
+        commandInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendButton.click();
+            }
+        });
+
+        log("Página carregada. Clique em 'Conectar' para iniciar.", 'success');
+    </script>
+</body>
+</html>
